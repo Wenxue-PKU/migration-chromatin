@@ -1,11 +1,11 @@
 This directory contains the data and scripts required to generate the plots and analysis in the paper:
 
-Paper name
-Elsie Jacobson
+Migration through a small pore disrupts inactive chromatin organisation in neutrophil-like cells
+Elsie C. Jacobson,  Jo K. Perry, David S. Long, Ada L. Olins, Donald E. Olins, Bryon E. Wright, Mark H. Vickers, Justin M. O'Sullivan
+https://www.biorxiv.org/content/early/2018/06/05/339085
 
-The DESeq2 folder contains the featureCounts matrix and all downstream gene expression analysis
-The homer folder contains scripts that require DGE data, so it is recommended that the DESeq2 scripts are run first
-The topdom folder contains data relating to topologically associated domain analysis
+The 00_RNAseq folder contains the featureCounts matrix and all downstream gene expression analysis
+The 01_Hi-C folder contains scripts that require DGE data, so it is recommended that the RNAseq scripts are run first
 
 The folders are structured:
 /data contains pre-processed data required for the analyses
