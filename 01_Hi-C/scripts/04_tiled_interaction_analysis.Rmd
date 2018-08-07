@@ -1,0 +1,287 @@
+---
+title: "tiled_interaction_analysis"
+author: "Elsie Jacobson"
+date: "7/19/2018"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(fuzzyjoin)
+library(scales)
+library(extrafont)
+
+colsame <- viridis_pal(option="B", begin=0.2, end=0.8)(2)
+coldir <- c("#7AD151FF","#CC4977FF")
+
+ggformat <- theme_classic(base_family = "Arial") + theme(text = element_text(size = 20))
+
+rotate <- theme(axis.text.x = element_text(angle = 60, hjust = 1))
+```
+
+##up vs down
+
+```{r}
+mig5_up_mig14 <- read.csv("../results/mig5_significant_ints_v14.csv")
+mig5_down_mig14 <- read.csv("../results/mig14_significant_ints_v5.csv")
+```
+
+```{r}
+m5_up_m14 <- mig5_up_mig14 %>%
+  mutate(range=case_when(Distance>1000000~"Long",TRUE~"Short")) %>%
+  mutate(sig=case_when(qval<0.1~"sig",TRUE~"NS")) %>%
+  group_by(range,sig) %>%
+  summarise(count=dplyr::n()) %>%
+  mutate(total=sum(count)) %>%
+  filter(sig=="sig") %>%
+  mutate(direction="up") %>%
+  mutate(prop_diff=count/total)
+
+m5_v_m14 <- mig5_down_mig14 %>%
+  mutate(range=case_when(Distance>1000000~"Long",TRUE~"Short")) %>%
+  mutate(sig=case_when(qval<0.1~"sig",TRUE~"NS")) %>%
+  group_by(range,sig) %>%
+  summarise(count=dplyr::n()) %>%
+  mutate(total=sum(count)) %>%
+  filter(sig=="sig") %>%
+  mutate(direction="down") %>%
+  mutate(prop_diff=count/total) %>%
+  bind_rows(m5_up_m14) %>%
+  ungroup() %>%
+  mutate(range=factor(range, levels=c("Short","Long")))
+```
+
+Figure****
+
+```{r}
+ggplot(m5_v_m14, aes(range,prop_diff,fill=direction)) + geom_bar(stat="identity", position="dodge") + theme_classic() + scale_fill_manual(values=coldir, labels=c("Decreased","Increased")) + labs(y="Proportion of differential contacts (5um vs 14um)",x="Distance", fill="Contact frequency") + ggformat
+ggsave("../plots/proportion_diff_contacts_short_long.pdf", useDingbats=FALSE)
+```
+
+```{r}
+short <- filter(m5_v_m14, range=="Short")
+long <- filter(m5_v_m14, range=="Long")
+
+prop.test(short$count,short$total)
+prop.test(long$count,long$total)
+```
+
+##Interaction analysis
+
+```{r}
+#sigCPC <- read.csv("../results/ctrl_sig_PC1.txt", sep="\t", header=FALSE)
+sig5PC <- read.csv("../results/mig5_sig_PC1.txt", sep="\t", header=FALSE)
+sig14PC <- read.csv("../results/mig14_sig_PC1.txt", sep="\t", header=FALSE)
+#down5PC <- read.csv("../results/mig5_down_diff_PC1.txt", sep="\t",header=FALSE)
+down5v14PC <- read.csv("../results/mig5v14_down_diff_PC1.txt", sep="\t",header=FALSE)
+up5v14PC <- read.csv("../results/mig5v14_up_diff_PC1.txt", sep="\t",header=FALSE)
+```
+
+These are chromosome where the first principle component does not reflect compartment structure, but instead seems to show chromosome arms.
+
+```{r}
+exclude <- c("chr4","chr5","chr19","chr21","chrX")
+```
+
+```{r}
+total_ints <- sig14PC %>%
+  filter(!(V1 %in% exclude)) %>%
+  select(chrom=V1,start=V2,end=V3,ID=V4,distance=V5,PC1=V9) %>%
+  mutate(compartment=case_when(PC1>0~"A",PC1<0~"B",TRUE~"unknown")) %>%
+  mutate(range=case_when(distance<=5e+5~'5e+5',
+                         distance<=1e+6~'1e+6',
+                         distance<=1.5e+6~'1.5e+6',
+                         distance<=2e+6~'2e+6',
+                         distance<=3e+6~'3e+6',
+                         distance<=4e+6~'4e+6',
+                         distance<=7e+6~'7e+6',
+                         distance<=1e+7~'1e+7',
+                         TRUE~">10Mb")) %>%
+  mutate(dist=factor(range, levels=c('5e+5','1e+6','1.5e+6','2e+6','3e+6','4e+6','7e+6','1e+7',">10Mb"))) %>%
+  group_by(dist, compartment) %>%
+  dplyr::summarize(count=dplyr::n())
+
+diff_ints <- down5v14PC %>%
+  filter(!(V1 %in% exclude)) %>%
+  select(chrom=V1,start=V2,end=V3,ID=V4,distance=V5,PC1=V9) %>%
+  mutate(compartment=case_when(PC1>0~"A",PC1<0~"B",TRUE~"unknown")) %>%
+  mutate(range=case_when(distance<=5e+5~'5e+5',
+                         distance<=1e+6~'1e+6',
+                         distance<=1.5e+6~'1.5e+6',
+                         distance<=2e+6~'2e+6',
+                         distance<=3e+6~'3e+6',
+                         distance<=4e+6~'4e+6',
+                         distance<=7e+6~'7e+6',
+                         distance<=1e+7~'1e+7',
+                         TRUE~">10Mb")) %>%
+  mutate(dist=factor(range, levels=c('5e+5','1e+6','1.5e+6','2e+6','3e+6','4e+6','7e+6','1e+7',">10Mb"))) %>%
+  group_by(dist, compartment) %>%
+  dplyr::summarize(count=dplyr::n())
+
+prop_diff_comp <- diff_ints %>%
+  group_by(dist) %>%
+  mutate(freq=count/sum(count))
+```
+
+Figure****
+
+```{r}
+ggplot(total_ints, aes(dist, count, fill=compartment)) + geom_bar(position="dodge", stat="identity") + theme_classic() + scale_fill_manual(values=colsame) + ggformat + labs(x="Distance",y="Total contacts", fill="") + rotate + theme(legend.position = c(0.6,0.8))
+ggsave("../plots/total_contacts_mig14_distance.pdf", useDingbats=FALSE)
+
+ggplot(diff_ints, aes(dist, count, fill=compartment)) + geom_bar(position="dodge", stat="identity") + scale_fill_manual(values=colsame) + ggformat + labs(x="Distance",y="Decreased contacts", fill="") + rotate + theme(legend.position = c(0.6,0.8))
+ggsave("../plots/disrupted_contacts_mig5v14_distance.pdf", useDingbats=FALSE)
+```
+
+bootstrap distribution
+
+```{r}
+dat <- NULL
+
+for(i in 1:10000){
+n <- sig14PC %>%
+  sample_n(length(down5v14PC$V1), replace=TRUE) %>%
+  filter(!(V1 %in% exclude)) %>%
+  select(chrom=V1,start=V2,end=V3,ID=V4,distance=V5,PC1=V9) %>%
+  mutate(compartment=case_when(PC1>0~"A",PC1<0~"B",TRUE~"unknown")) %>%
+  mutate(range=case_when(distance<=5e+5~'5e+5',
+                         distance<=1e+6~'1e+6',
+                         distance<=1.5e+6~'1.5e+6',
+                         distance<=2e+6~'2e+6',
+                         distance<=3e+6~'3e+6',
+                         distance<=4e+6~'4e+6',
+                         distance<=7e+6~'7e+6',
+                         distance<=1e+7~'1e+7',
+                         TRUE~">10Mb")) %>%
+  mutate(dist=factor(range, levels=c('5e+5','1e+6','1.5e+6','2e+6','3e+6','4e+6','7e+6','1e+7',">10Mb"))) %>%
+  group_by(dist, compartment) %>%
+  dplyr::summarize(count=dplyr::n()) %>%
+  mutate(freq=count/sum(count))
+
+  if(i==1){
+   dat <- n 
+  } else {
+    dat <- bind_rows(dat, n)
+  }
+}
+```
+
+```{r}
+sig <- dat %>%
+  ungroup() %>%
+  group_by(dist, compartment) %>%
+  summarise(hi=quantile(freq,0.995), lo=quantile(freq,0.005))
+
+prop_sig <- prop_diff_comp %>%
+  left_join(sig, by=c("dist","compartment")) %>%
+  mutate(stat=case_when(freq<lo~"depleted",freq>hi~"enriched",TRUE~"none"))
+
+bootstrap <- bind_rows(dat,prop_sig)
+```
+
+Figure***
+
+```{r}
+ggplot(prop_sig, aes(dist, freq, colour=compartment)) + geom_point(position = position_dodge(width=0.5)) + geom_errorbar(aes(ymin=lo, ymax=hi),position = position_dodge(width=0.5)) + scale_colour_manual(values=colsame) + theme_classic(base_family = "Arial") + theme(text = element_text(size = 13.333)) + labs(x="Distance",y="Decreased vs total contacts", colour="") + rotate + theme(legend.title = element_blank(),legend.position = c(0.3,0.85),legend.background = element_rect(fill=NA,
+                                  size=0.5, linetype="solid", 
+                                  colour ="black"))
+ggsave("../plots/compartment_interactions_binned_5v14.pdf", width=7,height=7,useDingbats=FALSE)
+```
+
+######5mig increased ints
+
+5mig vs 14mig
+
+```{r}
+total_ints <- sig5PC %>%
+  filter(!(V1 %in% exclude)) %>%
+  select(chrom=V1,start=V2,end=V3,ID=V4,distance=V5,PC1=V9) %>%
+  mutate(compartment=case_when(PC1>0~"A",PC1<0~"B",TRUE~"unknown")) %>%
+  mutate(range=case_when(distance<=1e+6~'1e+6',
+                         distance<=2e+6~'2e+6',
+                         distance<=4e+6~'4e+6',
+                         distance<=7e+6~'7e+6',
+                         distance<=1e+7~'1e+7',
+                         TRUE~">10Mb")) %>%
+  mutate(dist=factor(range, levels=c('1e+6','2e+6','4e+6','7e+6','1e+7',">10Mb"))) %>%
+  group_by(dist, compartment) %>%
+  dplyr::summarize(count=dplyr::n())
+
+diff_ints <- up5v14PC %>%
+  filter(!(V1 %in% exclude)) %>%
+  select(chrom=V1,start=V2,end=V3,ID=V4,distance=V5,PC1=V9) %>%
+  mutate(compartment=case_when(PC1>0~"A",PC1<0~"B",TRUE~"unknown")) %>%
+  mutate(range=case_when(distance<=1e+6~'1e+6',
+                         distance<=2e+6~'2e+6',
+                         distance<=4e+6~'4e+6',
+                         distance<=7e+6~'7e+6',
+                         distance<=1e+7~'1e+7',
+                         TRUE~">10Mb")) %>%
+  mutate(dist=factor(range, levels=c('1e+6','2e+6','4e+6','7e+6','1e+7',">10Mb"))) %>%
+  group_by(dist, compartment) %>%
+  dplyr::summarize(count=dplyr::n())
+
+prop_diff_comp <- diff_ints %>%
+  group_by(dist) %>%
+  mutate(freq=count/sum(count))
+```
+
+```{r}
+ggplot(total_ints, aes(dist, count, fill=compartment)) + geom_bar(position="dodge", stat="identity") + theme_classic() + scale_fill_manual(values=colsame) + ggformat + labs(x="Distance",y="Total contacts")
+ggsave("../plots/total_contacts_control_distance_up5v14.pdf", useDingbats=FALSE)
+
+ggplot(diff_ints, aes(dist, count, fill=compartment)) + geom_bar(position="dodge", stat="identity") + theme_classic() + scale_fill_manual(values=colsame) + ggformat + labs(x="Distance",y="Increased contacts")
+ggsave("../plots/increased_contacts_mig5vcontrol_distance_up5v14.pdf", useDingbats=FALSE)
+```
+
+
+
+bootstrap distribution
+
+```{r}
+dat <- NULL
+
+for(i in 1:1000){
+n <- sig5PC %>%
+  sample_n(length(up5v14PC$V1), replace=TRUE) %>%
+  filter(!(V1 %in% exclude)) %>%
+  select(chrom=V1,start=V2,end=V3,ID=V4,distance=V5,PC1=V9) %>%
+  mutate(compartment=case_when(PC1>0~"A",PC1<0~"B",TRUE~"unknown")) %>%
+  mutate(range=case_when(distance<=1e+6~'1e+6',
+                         distance<=2e+6~'2e+6',
+                         distance<=4e+6~'4e+6',
+                         distance<=7e+6~'7e+6',
+                         distance<=1e+7~'1e+7',
+                         TRUE~">10Mb")) %>%
+  mutate(dist=factor(range, levels=c('1e+6','2e+6','4e+6','7e+6','1e+7',">10Mb"))) %>%
+  group_by(dist, compartment) %>%
+  dplyr::summarize(count=dplyr::n()) %>%
+  mutate(freq=count/sum(count))
+
+  if(i==1){
+   dat <- n 
+  } else {
+    dat <- bind_rows(dat, n)
+  }
+}
+```
+
+```{r}
+sig <- dat %>%
+  ungroup() %>%
+  group_by(dist, compartment) %>%
+  summarise(hi=quantile(freq,0.975), lo=quantile(freq,0.025))
+
+prop_sig <- prop_diff_comp %>%
+  inner_join(sig, by=c("dist","compartment")) %>%
+  mutate(stat=case_when(freq<lo~"depleted",freq>hi~"enriched",TRUE~"none"))
+
+bootstrap <- bind_rows(dat,prop_sig)
+```
+
+```{r}
+ggplot(prop_sig, aes(dist, freq, colour=compartment)) + geom_point(position = position_dodge(width=0.5)) + geom_errorbar(aes(ymin=lo, ymax=hi),position = position_dodge(width=0.5)) + scale_colour_manual(values=colsame) + theme_classic(base_family = "Arial") + theme(text = element_text(size = 13.333)) + labs(x="Distance",y="Increased vs total contacts", colour="") + rotate + theme(legend.title = element_blank())
+ggsave("../plots/compartment_interactions_binned_up5v14.pdf", useDingbats=FALSE)
+```

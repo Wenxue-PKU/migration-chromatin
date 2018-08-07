@@ -1,0 +1,140 @@
+---
+title: "tiled_interactions"
+author: "Elsie Jacobson"
+date: "7/10/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(fuzzyjoin)
+library(scales)
+#library(plyr)
+#detach("package:plyr")
+
+colsame <- viridis_pal(option="B", begin=0.2, end=0.8)(2)
+```
+
+```{r}
+up5 <- read.csv("../data/5migv_ctrl_100_40_ints.txt", sep="\t", stringsAsFactors = FALSE)
+up14 <- read.csv("../data/14migv_ctrl_100_40_ints.txt", sep="\t", stringsAsFactors = FALSE)
+down5 <- read.csv("../data/ctrl_v_5mig_100_40_ints.txt", sep="\t", stringsAsFactors = FALSE)
+down14 <- read.csv("../data/ctrl_v_14mig_100_40_ints.txt", sep="\t", stringsAsFactors = FALSE)
+up5v14 <- read.csv("../data/5mig_v_14mig_100_40_ds_ints.txt", sep="\t", stringsAsFactors = FALSE)
+down5v14 <- read.csv("../data/14mig_v_5mig_100_40_ds_ints.txt", sep="\t", stringsAsFactors = FALSE)
+```
+
+###Function to filter significant and differential contacts from a homer output file
+
+```{r}
+make_sig_diff <- function(data, out_sig, out_diff){
+  raw <- read.csv(data, sep = '\t', stringsAsFactors = FALSE)
+  dat <- raw %>%
+    filter(chr.1.==chr.2.,chr.1.!="chrY"& chr.1.!="chrM")
+    
+  sig <- dat %>% 
+    mutate(dist=as.numeric(Distance)) %>%
+    filter(dist>=100000) %>%
+    filter(FDR.Benjamini..based.on.2.98e.09.total.tests. <= 0.05) %>%
+    mutate(pval=2*pnorm(-abs(Z.score.Difference.vs..Bg))) %>%
+    mutate(qval=p.adjust(pval, method = "BH"))
+  
+  diff <- sig %>%
+    filter(qval <= 0.1)
+  
+  write.csv(sig, out_sig, row.names=FALSE)
+  write.csv(diff, out_diff, row.names=FALSE)
+}
+```
+
+##Mig5 vs control 
+
+###Increased contacts
+
+```{r}
+make_sig_diff('../data/5migv_ctrl_100_40_ints.txt', "../results/mig5_significant_ints.csv", "../results/mig5_up_filtered.csv")
+```
+
+###Decreased contacts
+
+```{r}
+make_sig_diff('../data/ctrl_v_5mig_100_40_ints.txt', "../results/ctrl_significant_ints.csv", "../results/mig5_down_filtered.csv")
+```
+
+##Mig14 vs control 
+
+###Increased contacts
+
+```{r}
+make_sig_diff('../data/14migv_ctrl_100_40_ints.txt', "../results/mig14_significant_ints.csv", "../results/mig14_up_filtered.csv")
+```
+
+###Decreased contacts
+
+```{r}
+make_sig_diff('../data/ctrl_v_14mig_100_40_ints.txt', '../results/ctrl_significant_ints_v14.csv', "../results/mig14_down_filtered.csv")
+```
+
+##Mig5 vs mig14 
+
+###Increased contacts
+
+```{r}
+make_sig_diff('../data/5mig_v_14mig_100_40_ds_ints.txt', '../results/mig5_significant_ints_v14.csv', "../results/mig5v14_up_filtered.csv")
+```
+
+###Decreased contacts
+
+```{r}
+make_sig_diff('../data/14mig_v_5mig_100_40_ds_ints.txt', '../results/mig14_significant_ints_v5.csv', "../results/mig5v14_down_filtered.csv")
+```
+
+##Function to convert filtered homer files to bed format
+
+```{r}
+homer2bed <- function(x) {
+
+  dat <- read.csv(x)
+  filename=ifelse(str_detect(x,"significant"),gsub("significant_ints.csv","sig.bed",x),
+                  ifelse(str_detect(x,"filtered"),gsub("filtered.csv","diff.bed",x), "WRONG FILE"))
+  
+  r2 <- dat %>%
+    dplyr::select(chrom=chr.2., 
+                  start=start.2., end=end.2., 
+                  name=InteractionID, Distance) %>%
+    mutate(start=ifelse(start<0, 0, start)) %>%
+    mutate(end=ifelse(end<0, 0, end)) %>%
+    distinct()
+  
+  bed <- dat %>%
+    dplyr::select(chrom=chr.1., 
+                  start=start.1., end=end.1., 
+                  name=InteractionID, Distance) %>%
+    mutate(start=ifelse(start<0, 0, start)) %>%
+    mutate(end=ifelse(end<0, 0, end)) %>%
+    distinct() %>%
+    bind_rows(r2)
+  
+  write.table(bed, filename, sep="\t", col.names = FALSE ,row.names = FALSE, quote=FALSE)
+  return(filename)
+  
+}
+```
+
+```{r}
+homer2bed("../results/mig5_significant_ints.csv")
+homer2bed("../results/ctrl_significant_ints.csv")
+homer2bed("../results/mig14_significant_ints.csv")
+
+homer2bed("../results/mig5_up_filtered.csv")
+homer2bed("../results/mig5_down_filtered.csv")
+homer2bed("../results/mig14_up_filtered.csv")
+homer2bed("../results/mig14_down_filtered.csv")
+homer2bed("../results/mig5v14_up_filtered.csv")
+homer2bed("../results/mig5v14_down_filtered.csv")
+```
+
+add PC1 values with bedtools 'add_PC1.zsh'
+
+move to tiled_interaction_analysis.Rmd

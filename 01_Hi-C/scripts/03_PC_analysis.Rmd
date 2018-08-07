@@ -1,0 +1,575 @@
+---
+title: "PC_analysis"
+author: "Elsie Jacobson"
+date: "7/12/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(plyranges)
+library(tidyverse)
+library(scales)
+library(extrafont)
+
+col4 <- show_col(viridis_pal(option="D", begin=0, end=1)(20))
+colswitch <- c("#2D718EFF","#3CBC75FF")
+colsame <- viridis_pal(option="B", begin=0.2, end=0.8)(2)
+col4 <- c("#420A68FF","#2D718EFF","#3CBC75FF","#FCA50AFF")
+col3 <- c("#420A68FF","#3CBC75FF","#FCA50AFF")
+col2b <- viridis_pal(option="D", begin=0.2, end=0.8)(2)
+
+exclude <- c("chr4","chr5","chr19","chr21","chrX")
+
+ggformat <- theme_classic(base_family = "Arial") + theme(text = element_text(size = 20))
+
+rotate <- theme(axis.text.x = element_text(angle = 60, hjust = 1))
+```
+
+```{r, echo=FALSE}
+pc5 <- read.table('../data/100kb_5mig_ds.PC1.bed', sep='\t')
+pc14 <- read.table('../data/100kb_14mig.PC1.bed', sep='\t')
+
+cd5v14 <- read.csv("../data/100kb_5mig_14mig.corrDiff.txt", sep="\t", header=FALSE)
+
+rna5v14 <- read.csv('../../00_RNAseq/results/mig5v14_all.csv')
+genes <- read.table('../../00_RNAseq/results/mig5v14.bed', sep='\t')
+
+ints_homer_5v14 <- read.csv("../results/mig5v14_down_diff.bed", sep="\t",header=FALSE)
+ints_homer_14sig <- read.csv("../results/mig14_sig.bed", sep="\t",header=FALSE)
+```
+
+##Used
+
+```{r, echo=FALSE}
+pc5_g <- pc5 %>%
+  dplyr::rename(seqnames=V1,start=V2,end=V3, PC1_5=V4) %>%
+  filter(!(seqnames %in% exclude)) %>%
+  mutate(compartment_5=case_when(PC1_5>0~"A",PC1_5<0~"B",TRUE~"unknown")) %>%
+  mutate(end=end-1) %>%
+  as_granges()
+
+pc14_g <- pc14 %>%
+  dplyr::rename(seqnames=V1,start=V2,end=V3, PC1_14=V4) %>%
+  filter(!(seqnames %in% exclude)) %>%
+  mutate(compartment_14=case_when(PC1_14>0~"A",PC1_14<0~"B",TRUE~"unknown")) %>%
+  mutate(end=end-1) %>%
+  as_granges()
+
+pc5_14 <- join_overlap_inner(pc5_g,pc14_g)
+```
+
+```{r, echo=FALSE}
+cd5v14_g <- cd5v14 %>%
+  dplyr::select(seqnames=V2,start=V3,end=V4, corrdiff_5v14=V6) %>%
+  filter(!(seqnames %in% exclude)) %>%
+  mutate(correlation=case_when(corrdiff_5v14<0~"anti", corrdiff_5v14<0.6~"low",corrdiff_5v14<0.9~"mid",TRUE~"high")) %>%
+  mutate(end=end-1) %>%
+  as_granges()
+
+pc_cd <- join_overlap_inner(pc5_14, cd5v14_g)
+pc_cd@elementMetadata$chr <- pc_cd@seqnames
+pc_cd@elementMetadata$loc <- pc_cd@ranges@start
+pc_cd@elementMetadata$pos <- paste(pc_cd@elementMetadata$chr,pc_cd@elementMetadata$loc, sep="-")
+
+pc_cd <- pc_cd  %>%
+  mutate(correlated=case_when(corrdiff_5v14<0.6~"no",TRUE~"yes")) %>%
+  mutate(comp_same=case_when(compartment_14==compartment_5~TRUE,TRUE~FALSE)) %>%
+  mutate(switched=case_when(comp_same==FALSE & correlated=="no"~"yes",TRUE~"no")) %>%
+  mutate(change=case_when(compartment_14=="A" & switched=="no"~"A-stable",
+                          compartment_14=="A" & switched=="yes"~"A-switch",
+                          compartment_14=="B" & switched=="no"~"B-stable",
+                          compartment_14=="B" & switched=="yes"~"B-switch")) %>%
+  mutate(change=factor(change, levels=c("A-stable","A-switch","B-switch","B-stable")))
+
+saveRDS(pc_cd, "../results/PC_corrdiff_mig_granges.rds")
+```
+
+```{r, include=FALSE}
+genes_5v14 <- genes %>%
+  left_join(rna5v14, by=c("V4"="ens_gene")) %>%
+  select(seqnames=V1,start=V2,end=V3,ens_gene=V4,strand=V5,baseMean,log2FoldChange,padj,external_gene_name) %>%
+  mutate(significant=case_when(padj<0.05~"DE",TRUE~"NS")) %>%
+  mutate(direction=case_when(log2FoldChange<0~"down",log2FoldChange>0~"up",TRUE~"none")) %>%
+  as_granges()
+
+pc_cd_genes <- join_overlap_left(pc_cd, genes_5v14)
+```
+
+##Data frame containing PC, corrdiff, and gene expression
+
+```{r, echo=FALSE}
+all_dat <- as.data.frame(pc_cd_genes@elementMetadata)
+```
+
+##Data frame containing PC and corrdiff
+
+```{r, echo=FALSE}
+compartment_only <- as.data.frame(pc_cd@elementMetadata)
+```
+
+###Compartments mostly called the same, B changes more frequently
+
+Figure***
+
+```{r}
+ggplot(compartment_only, aes(change, fill=change)) + geom_bar(position="dodge") + theme_classic()  + scale_fill_manual(values=col4) + labs(y="Number of bins (100kb)", x="14um vs 5um", fill="") + ggformat
+ggsave("../plots/bin_counts_compartment_switching.pdf", width=7, useDingbats=FALSE)
+```
+
+```{r}
+table(compartment_only$change)
+```
+
+Genome wide distribution of compartment switching
+
+```{r}
+library(plyr)
+compartment_switch <- compartment_only %>%
+  filter(switched=="yes") %>%
+  mutate(loc=round_any(loc,1000000)) %>%
+  group_by(chr,loc) %>%
+  dplyr::summarise(count=dplyr::n())
+detach(package:plyr)
+```
+
+```{r}
+ggplot(compartment_switch, aes(loc, count)) + geom_bar(stat="identity") + facet_wrap(~chr, scales = "free_x") + ggformat + theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank()) +
+  scale_y_continuous(breaks=c(2,4)) + labs(y="Compartments")
+ggsave("../plots/diff_compartments_genome_distribution.pdf")
+```
+
+```{r, include=FALSE}
+switch_boot <- NULL
+
+for(i in 1:1000){
+  n <- compartment_only %>%
+  sample_n(size=length(compartment_only$compartment_14), replace=TRUE) %>%
+  group_by(compartment_14, switched, change) %>%
+  dplyr::summarise(count=dplyr::n()) %>%
+  ungroup() %>%
+  group_by(compartment_14) %>%
+  mutate(freq=count/sum(count)) %>%
+  filter(change %in% c("A-switch","B-switch"))
+  
+  if(i==1){
+   switch_boot <- n 
+  } else {
+    switch_boot <- bind_rows(switch_boot, n)
+  }
+}
+```
+
+Figure******
+
+```{r, echo=FALSE}
+ggplot(switch_boot, aes(change, freq, colour=change)) + geom_jitter(alpha=0.2) + geom_boxplot() + theme_classic()  + scale_colour_manual(values=colswitch) + ggformat + labs(y="Bootstrap proportion of bins", x="14um vs 5um", colour="")
+ggsave("../plots/proportion_bins_compartment_switching.pdf", useDingbats=FALSE)
+```
+
+```{r}
+switch_mod <- lm(freq~change, data=switch_boot)
+summary(switch_mod)
+```
+
+##Number of bins with expressed genes in A/B/switched 
+
+```{r}
+genes_per_comp <- all_dat %>%
+  mutate(gene=case_when(is.na(ens_gene)==TRUE~0,TRUE~1)) %>%
+  group_by(change,pos) %>%
+  distinct() %>%
+  dplyr::summarise(n_genes=sum(gene)) %>%  
+  ungroup() %>%
+  mutate(hasgenes=case_when(n_genes==0~0,TRUE~1))
+
+has_genes_comp <- genes_per_comp %>%
+  group_by(change,hasgenes) %>%
+  summarise(count=dplyr::n()) %>%
+  mutate(freq=count/sum(count), total=sum(count)) %>%
+  filter(hasgenes==1)
+
+ggplot(has_genes_comp, aes(change, freq, fill=change)) + geom_bar(stat="identity") + theme_classic() + scale_fill_manual(values=col4)
+```
+
+```{r}
+has_genes_comp
+```
+
+```{r}
+for(i in 1:1000){
+  n <- all_dat %>%
+  sample_n(size=length(all_dat$compartment_5), replace=TRUE) %>%
+  mutate(gene=case_when(is.na(ens_gene)==TRUE~0,TRUE~1)) %>%
+  group_by(change,pos) %>%
+  distinct() %>%
+  dplyr::summarise(n_genes=sum(gene)) %>%  
+  ungroup() %>%
+  mutate(hasgenes=case_when(n_genes==0~0,TRUE~1)) %>%
+  group_by(change,hasgenes) %>%
+  summarise(count=dplyr::n()) %>%
+  mutate(freq=count/sum(count), total=sum(count)) %>%
+  filter(hasgenes==1)
+  
+  if(i==1){
+    boot_has_genes_comp <- n
+  } else{
+    boot_has_genes_comp <- bind_rows(boot_has_genes_comp,n)
+  }
+}
+```
+
+Figure******
+
+```{r}
+ggplot(boot_has_genes_comp, aes(change, freq, colour=change)) + geom_jitter(alpha=0.5) + geom_boxplot() + theme_classic() + scale_colour_manual(values=col4)  + ggformat + labs(y="Proportion of active bins", x="14um vs 5um", colour="")
+ggsave("../plots/prop_bins_with_genes_comp_switch.pdf", width=7, useDingbats=FALSE)
+```
+
+```{r}
+gene_bin_mod <- lm(freq~change,data=boot_has_genes_comp)
+summary(gene_bin_mod)
+```
+
+```{r}
+gene_bin_aov <- aov(freq~change,data=boot_has_genes_comp)
+TukeyHSD(gene_bin_aov)
+```
+
+###Differentially expressed genes in A/B/switched
+
+```{r}
+sig_dat <- all_dat %>%
+  filter(padj<0.5) %>%
+  select(ens_gene, log2FoldChange, padj, external_gene_name, change) %>%
+  distinct()
+
+ggplot(sig_dat, aes(change, log2FoldChange, colour=change)) + geom_jitter(alpha=0.6, height=0) + theme_classic() + scale_colour_manual(values=col4) + ggformat + labs(x="14µm vs 5µm", y="log2FC 14µm vs 5µm", colour="")
+ggsave("../plots/DE_genes_compartment_switch.pdf", width=7, useDingbats=FALSE)
+```
+
+```{r}
+de_mod <- lm(log2FoldChange~change, data=sig_dat)
+summary(de_mod)
+
+de_aov <- aov(log2FoldChange~change, data=sig_dat)
+TukeyHSD(de_aov)
+```
+
+###Differentially expressed genes per bin with expressed genes
+
+```{r}
+has_de_comp <- all_dat %>%
+  mutate(de=case_when(padj<0.5~1,TRUE~0)) %>%
+  group_by(change,pos) %>%
+  distinct() %>%
+  summarise(n_DE=sum(de)) %>%
+  ungroup() %>%
+  mutate(has_DE=case_when(n_DE==0~0,TRUE~1)) %>%
+  group_by(change,has_DE) %>%
+  summarise(de_count=dplyr::n()) %>%
+  mutate(de_freq=de_count/sum(de_count), de_total=sum(de_count)) %>%
+  filter(has_DE==1) %>%
+  left_join(has_genes_comp, by=c("change")) %>%
+  mutate(de_per_gene=de_freq/freq)
+
+ggplot(has_de_comp, aes(change, de_per_gene, fill=change)) + geom_bar(stat="identity") + theme_classic() + scale_fill_manual(values=col4)
+```
+
+bootstrap it
+
+```{r}
+for(i in 1:1000){
+  n <- all_dat %>%
+  sample_n(size=length(all_dat$compartment_5), replace=TRUE) %>%
+  mutate(de=case_when(padj<0.5~1,TRUE~0)) %>%
+  group_by(change,pos) %>%
+  distinct() %>%
+  summarise(n_DE=sum(de)) %>%
+  ungroup() %>%
+  mutate(has_DE=case_when(n_DE==0~0,TRUE~1)) %>%
+  group_by(change,has_DE) %>%
+  summarise(de_count=dplyr::n()) %>%
+  mutate(de_freq=de_count/sum(de_count), de_total=sum(de_count)) %>%
+  filter(has_DE==1) %>%
+  left_join(has_genes_comp, by=c("change")) %>%
+  mutate(de_per_gene=de_freq/freq)
+  
+  if(i==1){
+    boot_de <- n
+  } else {
+    boot_de <- bind_rows(boot_de,n)
+  }
+}
+```
+
+```{r}
+prep_mod <- boot_de %>%
+  ungroup() %>%
+  mutate(change=factor(change,levels=c("B-stable","A-stable","A-switch","B-switch")))
+
+de_mod <- lm(prep_mod$de_per_gene~prep_mod$change)
+summary(de_mod)
+```
+
+```{r}
+ggplot(boot_de, aes(change, de_per_gene, colour=change)) + geom_jitter(alpha=0.5) + theme_classic() + scale_colour_manual(values=col4)
+```
+
+##Switching compartments intersect switching contacts?
+
+Distribution of disrupted contacts <1Mb across the genome
+
+```{r}
+library(plyr)
+short_diff_ints <- ints_homer_5v14 %>%
+  dplyr::rename(chr=V1, start=V2, end=V3, ID=V4, distance=V5) %>%
+  mutate(bin=round_any(start,1000000)) %>%
+  mutate(range=case_when(distance<=1000000~"Short",TRUE~"Long")) %>%
+  mutate(range=factor(range, levels=c("Short","Long"))) %>%
+  filter(range=="Short") %>%
+  group_by(chr,start) %>%
+  dplyr::summarise(count=dplyr::n()) %>%
+  mutate(count=as.integer(count))
+detach(package:plyr)
+```
+
+Figure***************
+
+```{r}
+ggplot(short_diff_ints, aes(start,count)) + geom_bar(stat="identity", colour="black") + facet_wrap(~chr, scales="free_x") + ggformat + theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank()) +
+  scale_y_continuous(breaks=c(1,2)) + labs(y="Contacts")
+ggsave("../plots/diff_contacts_genome_distribution.pdf")
+```
+
+Intersect contacts with PC
+
+```{r}
+ints_h_5v14 <- ints_homer_5v14 %>%
+  dplyr::rename(seqnames=V1, start=V2, end=V3, ID=V4, distance=V5) %>%
+  as_granges()
+
+saveRDS(ints_h_5v14, "../results/diff_ints_5v14_granges.Rda")
+
+ints_h_14sig <- ints_homer_14sig %>%
+  dplyr::rename(seqnames=V1, start=V2, end=V3, ID=V4, distance=V5) %>%
+  as_granges()
+
+saveRDS(ints_h_14sig, "../results/sig_ints_14_granges.Rda")
+
+switch_h_5v14 <- find_overlaps(pc_cd, ints_h_5v14)
+switch_h_14sig <- find_overlaps(pc_cd, ints_h_14sig)
+
+switch_h_5v14.df <- as.data.frame(switch_h_5v14@elementMetadata)
+switch_h_14sig.df <- as.data.frame(switch_h_14sig@elementMetadata)
+
+s_h_5v14 <- switch_h_5v14.df %>%
+  mutate(range=case_when(distance<=1000000~"Short",TRUE~"Long")) %>%
+  mutate(range=factor(range, levels=c("Short","Long"))) %>%
+  distinct()
+
+s_h_14sig <- switch_h_14sig.df %>%
+  mutate(range=case_when(distance<=1000000~"Short",TRUE~"Long")) %>%
+  mutate(range=factor(range, levels=c("Short","Long"))) %>%
+  distinct()
+```
+
+##Diff contacts
+
+```{r, include=FALSE}
+ggplot(s_h_5v14, aes(change)) + geom_bar() + theme_classic() + facet_wrap(~range)
+ggplot(s_h_14sig, aes(change)) + geom_bar() + theme_classic() + facet_wrap(~range)
+```
+
+```{r}
+table(s_h_5v14$change)
+table(s_h_14sig$change)
+```
+
+```{r, include=FALSE}
+prop_diff_ints <- s_h_5v14 %>%
+  select(range, change, ID) %>%
+  distinct() %>%
+  group_by(range, change) %>%
+  dplyr::summarise(contacts=dplyr::n()) %>%
+  mutate(diff_freq=contacts/sum(contacts))
+
+prop_ints <- s_h_14sig %>%
+  select(range, change, ID) %>%
+  distinct() %>%
+  group_by(range, change) %>%
+  dplyr::summarise(contacts=dplyr::n()) %>%
+  mutate(sig_freq=contacts/sum(contacts)) %>%
+  left_join(prop_diff_ints, by=c("range","change")) %>%
+  mutate(diff_v_sig=diff_freq/sig_freq)
+```
+
+```{r, include=FALSE}
+ggplot(prop_ints, aes(change, diff_v_sig, fill=change)) + geom_bar(stat="identity") + theme_classic() + facet_wrap(~range) + scale_fill_manual(values=col4)
+```
+
+bootstrap it
+
+```{r}
+p_s_i <- s_h_14sig %>%
+  select(range, change, ID) %>%
+  distinct() %>%
+  group_by(range, change) %>%
+  dplyr::summarise(contacts=dplyr::n()) %>%
+  mutate(sig_freq=contacts/sum(contacts))
+
+ints_pc <- NULL
+
+for(i in 1:1000){
+  p <- s_h_14sig %>%
+  sample_n(size=length(s_h_5v14$compartment_5), replace=TRUE) %>%
+  select(range,change, ID) %>%
+  distinct() %>%
+  group_by(range,change) %>%
+  dplyr::summarise(contacts=dplyr::n()) %>%
+  mutate(diff_freq=contacts/sum(contacts))
+
+ n <- p_s_i %>%
+  left_join(p, by=c("range","change")) %>%
+  mutate(diff_v_sig=diff_freq/sig_freq)
+ 
+ if(i==1){
+   ints_pc <- n
+ } else {
+   ints_pc <- bind_rows(ints_pc,n)
+ }
+ 
+}
+```
+
+```{r}
+boot_ints_pc <- ints_pc %>%
+  ungroup() %>%
+  group_by(range, change) %>%
+  mutate(diff_v_sig=case_when(is.na(diff_v_sig)==TRUE~0,TRUE~diff_v_sig)) %>%
+  summarise(hi=quantile(diff_v_sig,0.995), lo=quantile(diff_v_sig,0.005))
+
+prop_sig_ints_error <- prop_ints %>%
+  left_join(boot_ints_pc, by=c("range","change")) %>%
+  mutate(diff_v_sig=case_when(is.na(diff_v_sig)==TRUE~0,TRUE~diff_v_sig))
+```
+
+```{r}
+ggplot(prop_sig_ints_error, aes(change, diff_v_sig, colour=change)) + geom_point(size=4) + geom_errorbar(aes(ymin=lo, ymax=hi), width=0.5) + theme_classic() + facet_wrap(~range) + scale_colour_manual(values=col4) + ggformat + labs(y="Decreased contacts : Total contacts", x="14um vs 5um", colour="") + rotate
+ggsave("../plots/diff_ints_compartment_switch_bootstrap.pdf", useDingbats=FALSE)
+```
+
+##Add genes
+
+```{r}
+ints_genes_5v14 <- join_overlap_left(switch_h_5v14, genes_5v14)
+ints_genes_14sig <- join_overlap_left(switch_h_14sig, genes_5v14)
+
+ints_genes_5v14.df <- as.data.frame(ints_genes_5v14@elementMetadata)
+ints_genes_14sig.df <- as.data.frame(ints_genes_14sig@elementMetadata)
+
+in_ge_5v14 <- ints_genes_5v14.df %>%
+  mutate(range=case_when(distance>1000000~"Long",TRUE~"Short")) %>%
+  mutate(range=factor(range, levels=c("Short","Long"))) %>%
+  select(compartment_14,change,ID,range,ens_gene,external_gene_name,padj,log2FoldChange,baseMean) %>%
+  distinct()
+
+in_ge_14sig <- ints_genes_14sig.df %>%
+  mutate(range=case_when(distance>1000000~"Long",TRUE~"Short")) %>%
+  mutate(range=factor(range, levels=c("Short","Long"))) %>%
+  select(compartment_14,change,ID,range,ens_gene,external_gene_name,padj,log2FoldChange,baseMean) %>%
+  distinct()
+```
+
+##Total expressed genes
+
+```{r}
+onerow_genes_per_diff_int <- in_ge_5v14 %>%
+  group_by(range,compartment_14,ID) %>%
+  filter(dplyr::n()==1) %>%
+  mutate(n_genes=case_when(is.na(ens_gene)==TRUE~0,TRUE~1)) %>%
+  select(range, compartment_14, ID, n_genes)
+
+genes_per_diff_int <- in_ge_5v14 %>%
+  group_by(range,compartment_14,ID) %>%
+  filter(dplyr::n()>1) %>%
+  na.omit() %>%
+  dplyr::summarise(n_genes=dplyr::n()) %>%
+  bind_rows(onerow_genes_per_diff_int) %>%
+  mutate(contact="diff")
+
+sum_genes_per_diff_int <- genes_per_diff_int %>%
+  summarise(total_genes=sum(n_genes),n_contacts=dplyr::n()) %>%
+  mutate(contact="diff")
+```
+
+```{r}
+onerow_genes_per_sig_int <- in_ge_14sig %>%
+  group_by(range,compartment_14,ID) %>%
+  filter(dplyr::n()==1) %>%
+  mutate(n_genes=case_when(is.na(ens_gene)==TRUE~0,TRUE~1)) %>%
+  select(range, compartment_14, ID, n_genes)
+
+genes_per_int <- in_ge_14sig %>%
+  group_by(range,compartment_14,ID) %>%
+  filter(dplyr::n()>1) %>%
+  dplyr::summarise(n_genes=dplyr::n())  %>%
+  bind_rows(onerow_genes_per_sig_int) %>%
+  mutate(contact="sig") %>%
+  bind_rows(genes_per_diff_int) 
+```
+
+Proportion of contacts containing 0 genes
+
+```{r}
+has_genes <- genes_per_int %>%
+  ungroup() %>%
+  mutate(hasgenes=case_when(n_genes==0~0,TRUE~1)) %>%
+  group_by(range, compartment_14,contact,hasgenes) %>%
+  summarise(count=dplyr::n()) %>%
+  mutate(freq=count/sum(count), total=sum(count)) %>%
+  filter(hasgenes==1)
+
+ggplot(has_genes, aes(contact, freq, fill=compartment_14)) + geom_bar(stat="identity", position="dodge") + facet_wrap(~range) + theme_classic() + scale_fill_manual(values=col4)
+```
+
+prop_test
+
+```{r}
+has_genes_prop <- data.frame(matrix(nrow=4, ncol=7))
+colnames(has_genes_prop) <- c("range","compartment","pvalue","estimate1","estimate2","lo","hi")
+
+n <- 1
+
+for(i in c("Short","Long")){
+  for(j in c("A","B")){
+    
+    print(i)
+    print(j)
+    x <- filter(has_genes, range==i, compartment_14==j)
+    test <- prop.test(x$count, x$total)
+    
+    has_genes_prop$range[[n]] <- i
+    has_genes_prop$compartment[[n]] <- j
+    has_genes_prop$pvalue[[n]] <- test$p.value
+    has_genes_prop$estimate1[[n]] <- test$estimate[[1]]
+    has_genes_prop$estimate2[[n]] <- test$estimate[[2]]
+    has_genes_prop$lo[[n]] <- test$conf.int[[1]]
+    has_genes_prop$hi[[n]] <- test$conf.int[[2]]
+    
+    n=n+1
+  }
+
+}
+
+has_genes_prop$difference <- has_genes_prop$estimate1-has_genes_prop$estimate2
+has_genes_prop <- has_genes_prop %>%
+  mutate(range=factor(range, levels=c("Short","Long")))
+```
+
+Figure******************
+
+```{r}
+ggplot(has_genes_prop, aes(compartment, difference, colour=compartment))  + geom_hline(yintercept=0, linetype="dashed", colour="black") + geom_point(size=4) + geom_errorbar(aes(ymin=lo, ymax=hi)) + scale_colour_manual(values=colsame) + facet_wrap(~range) + theme_classic() + ggformat + labs(y="Transcriptionally active", x="14um vs 5um", colour="")
+ggsave("../plots/prop_contacts_with_genes_boxplot.pdf", useDingbats=FALSE)
+```

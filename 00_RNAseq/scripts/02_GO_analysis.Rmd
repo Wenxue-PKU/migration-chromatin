@@ -1,0 +1,94 @@
+---
+title: "Gene ontology analysis"
+author: "Elsie Jacobson"
+date: "4/20/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(topGO)
+```
+
+```{r}
+mig5v14 <- read.csv('../results/mig5v14_all.csv', row.names=1)
+mig5v14_sig <- read.csv('../results/mig5v14_sig.csv', row.names=1)
+mig5 <- read.csv('../results/mig5_all.csv', row.names=1)
+mig5_sig <- read.csv('../results/mig5_sig.csv', row.names=1)
+mig14 <- read.csv('../results/mig14_all.csv', row.names=1)
+mig14_sig <- read.csv('../results/mig14_sig.csv', row.names=1)
+```
+
+```{r}
+migration_genes <- read.csv("../data/gene_universe.csv")
+g2o_full <- readRDS('../data/biomart_gene_ontology.rds')
+g2o <- g2o_full %>%
+  filter(go_id != "") %>%
+  filter(ensembl_gene_id %in% migration_genes$ens_gene_5)
+geneID2GO <- by(g2o$go_id,
+                g2o$ensembl_gene_id,
+                function(x) as.character(x))
+geneUniverse <- names(geneID2GO)
+```
+
+###Gene ontology function
+
+```{r}
+find_GO <- function(genes, ontology="BP",out){
+List <- factor(as.integer(geneUniverse %in% genes))
+names(List) <- geneUniverse
+
+GO <- new("topGOdata", description="", ontology=ontology, allGenes=List,  annot = annFUN.gene2GO, gene2GO = geneID2GO)
+
+allGO = usedGO(object = GO)
+
+Fisher.w01 <- runTest(GO, algorithm="weight01", statistic="fisher")
+
+Res <- GenTable(GO, weight01Fisher = Fisher.w01, orderBy = "weight01Fisher", ranksOf = "weight01Fisher", topNodes = length(allGO))
+
+sigRes <- Res %>%
+  mutate(weight01Fisher=as.numeric(weight01Fisher)) %>%
+  filter(weight01Fisher<1) %>%
+  filter(Significant>1) %>%
+  mutate(qval=p.adjust(weight01Fisher, method="BH")) %>%
+  filter(qval<0.1)
+write.csv(sigRes, out)
+}
+
+```
+
+###Gene ontology of genes significant in both mig5 vs control and mig14 vs control
+
+```{r}
+mig5and14 <- mig5_sig[mig5_sig$ens_gene %in% mig14_sig$ens_gene,]
+Interest <- as.character(mig5and14$ens_gene)
+
+find_GO(genes=Interest, out='../results/GO_BP_5sig_14sig.csv')
+```
+
+###Gene ontology of genes significant only in mig5 vs control
+
+```{r}
+mig5_no14_5v14 <- mig5_sig[!(mig5_sig$ens_gene %in% c(mig14_sig$ens_gene,mig5v14_sig$ens_gene)),]
+Interest <- as.character(mig5_no14_5v14$ens_gene)
+
+find_GO(genes=Interest, out='../results/GO_BP_5sig_only.csv')
+```
+
+###Gene ontology of mig5v14 not in mig14
+
+Biological process
+
+```{r}
+mig5v14_no14 <- mig5v14_sig[!(mig5v14_sig$ens_gene %in% mig14_sig$ens_gene),]
+Interest <- as.character(mig5v14_no14$ens_gene)
+
+find_GO(genes=Interest, out='../results/GO_BP_5v14sig_mig14nonsig.csv')
+```
+
+Molecular Function
+
+```{r}
+find_GO(genes=Interest, ontology="MF", out='../results/GO_BP_5v14sig_mig14nonsig.csv')
+```

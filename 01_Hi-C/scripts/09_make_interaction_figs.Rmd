@@ -1,0 +1,200 @@
+---
+title: "make_interaction_figs"
+author: "Elsie Jacobson"
+date: "4/4/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(extrafont)
+
+ggformat <- theme_classic(base_family = "Arial") + theme(text = element_text(size = 20), legend.position = 'none')
+```
+
+```{r}
+conC <- read.csv("../results/ctrl_significant_ints.csv")
+con5 <- read.csv("../results/mig5_significant_ints_v14.csv")
+con14 <- read.csv("../results/mig14_significant_ints_v5.csv")
+
+pcC <- read.table('../data/100kb_ctrlmig_ds.PC1.bed', sep='\t', skip=1)
+pc5 <- read.table('../data/100kb_5mig_ds.PC1.bed', sep='\t', skip=1)
+pc14 <- read.table('../data/100kb_14mig.PC1.bed', sep='\t', skip=1)
+
+rna5v14 <- read.csv('../../00_RNAseq/results/mig5v14_all.csv')
+genes <- read.table('../../00_RNAseq/results/mig5v14.bed', sep='\t')
+
+cd5 <- read.csv("../data/100kb_5mig_ctrlmig.corrDiff.txt", sep="\t", header=FALSE)
+cd14 <- read.csv("../data/100kb_14mig_ctrlmig.corrDiff.txt", sep="\t", header=FALSE)
+cd5v14 <- read.csv("../data/100kb_5mig_14mig.corrDiff.txt", sep="\t", header=FALSE)
+
+tad5v14 <- read.table("../results/5mig_domains_not_in_14mig.bed", sep="\t", header=FALSE)
+
+tad5 <- read.table("../data/5mig_ds_domains.txt", sep="\t", header=FALSE)
+tadc <- read.table("../data/ctrlmig_ds_domains.txt", sep="\t", header=FALSE)
+tad14 <- read.table("../data/14mig_domains.txt", sep="\t", header=FALSE)
+```
+
+```{r}
+lims <- c(6.5e+07,7.5e+07)
+chromosome="chr17"
+
+#lims <- c(68000000,72400000)
+#chromosome="chr12"
+
+#lims <- c(45300000,49300000)
+#chromosome="chr18"
+
+#lims <- c(30170000,41490000)
+#chromosome="chr3"
+
+#lims <- c(16090000,27690000)
+#chromosome="chr9"
+
+```
+
+```{r}
+losttad <- tad5v14 %>%
+  select(seqnames=V1, start=V2, end=V3, type=V4) %>%
+  mutate(sample="5µm not 14µm") %>%
+  filter(seqnames==chromosome)
+
+tad <- tad5 %>%
+  mutate(sample="Mig5") %>%
+  bind_rows(tadc) %>%
+  mutate(sample=case_when(is.na(sample)==TRUE~"Control",TRUE~sample)) %>%
+  bind_rows(tad14) %>%
+  mutate(sample=case_when(is.na(sample)==TRUE~"Mig14",TRUE~sample)) %>%
+  select(seqnames=V1, start=V3, end=V5, type=V6, sample) %>%
+  #bind_rows(losttad) %>%
+  filter(type=='domain') %>%
+  filter(seqnames==chromosome) %>%
+  mutate(Condition=case_when(sample=="Control"~3, sample=="Mig14"~2, sample=="Mig5"~1)) %>%
+  mutate(id=row_number()) %>%
+  mutate(pos=id%%2)
+```
+
+```{r}
+chrC <- conC %>%
+  mutate(sample="Control") %>%
+  filter(Distance!="interchromosomal") %>%
+  mutate(Distance=as.integer(as.character(Distance)))
+
+chr5 <- con5 %>%
+  mutate(sample="Mig5") %>%
+  filter(Distance!="interchromosomal") %>%
+  mutate(Distance=as.integer(as.character(Distance)))
+
+chr14 <- con14 %>%
+  mutate(sample="Mig14") %>%
+  filter(Distance!="interchromosomal") %>%
+  mutate(Distance=as.integer(as.character(Distance)))
+
+ints <- chrC %>%
+  bind_rows(chr5) %>%
+  bind_rows(chr14) %>%
+  #filter(Distance>99000) %>%
+  #filter(LogP<log(0.1)) %>%
+  filter(start.1.>lims[[1]], end.1.<lims[[2]]) %>%
+  filter(start.2.>lims[[1]], end.2.<lims[[2]])
+```
+
+```{r}
+pC <- pcC %>%
+  mutate(sample="Control")
+
+p5 <-  pc5 %>%
+  mutate(sample="Mig5")
+
+p14 <-  pc14 %>%
+  mutate(sample="Mig14")
+
+pc <- pC %>%
+  bind_rows(p5) %>%
+  bind_rows(p14) %>%
+  mutate(pos=(V2+V3)/2) %>%
+  dplyr::rename(chr=V1, PC1=V4) 
+```
+
+```{r}
+cd5 <- cd5 %>%
+  mutate(sample="5vctrl")
+
+cd5v14 <-  cd5v14 %>%
+  mutate(sample="5v14")
+
+cd14 <-  cd14 %>%
+  mutate(sample="14vctrl")
+
+cd <- cd5v14 %>%
+  bind_rows(cd5) %>%
+  bind_rows(cd14) %>%
+  mutate(pos=(V3+V4)/2) %>%
+  dplyr::rename(chr=V2, corrdiff=V6) 
+```
+
+###chr17 c(6.5e+07,7.5e+07) - compartment B
+
+
+```{r}
+int1 <- filter(ints, chr.1.==chromosome)
+pc1 <- filter(pc, chr==chromosome)
+cd1 <- filter(cd, chr==chromosome)
+genes1 <- genes %>%
+  filter(V1==chromosome) %>%
+  mutate(location=(V2+V3)/2) %>%
+  left_join(rna5v14, by=c("V4"="ens_gene"))
+```
+
+local region
+
+```{r}
+ggplot() + geom_curve(data=int1, aes(x=start.1., xend=end.2., y=0, yend=0, size=-LogP)) + scale_size("-LogP", trans="log10", range=c(0.001,1), breaks=c(100,50,10,5,1,0.5,0.1)) + theme_classic() + theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank()) + theme(text = element_text(size = 20), legend.position = 'none') +
+  labs(x=chromosome) + coord_cartesian(xlim=lims, ylim=c(0,0.3)) + facet_grid(sample~.) +
+  scale_colour_manual(values=c("black","red"))
+
+ggsave("../plots/example_contacts.pdf", width=7)
+```
+
+PCs 
+
+```{r}
+ggplot(pc1, aes(pos, PC1, fill=PC1<0)) + geom_bar(stat='identity') + facet_grid(sample~.) +
+  labs(x=chromosome) + coord_cartesian(xlim=lims) + scale_fill_manual(values=c("#000000","#bdbdbd")) + theme_classic() + theme(text = element_text(size = 20),legend.position="none",axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+ggsave("../plots/example_PCs.pdf", width=7)
+```
+
+CorrDiff
+
+```{r}
+ggplot(cd1, aes(pos, corrdiff, fill=corrdiff<0)) + geom_bar(stat='identity') + facet_grid(sample~.) +
+  labs(x=chromosome) + coord_cartesian(xlim=lims) + scale_fill_manual(values=c("#000000","#bdbdbd")) + theme_classic() + theme(text = element_text(size = 20),legend.position="none",axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank()) + geom_hline(yintercept = 0.6, colour="grey", linetype="dashed")
+ggsave("../plots/chr17_zoom_corrdiff.pdf", width=7)
+```
+
+TADs
+
+```{r}
+ggplot(tad, aes(x=start,xend=end,y=pos,yend=pos)) + geom_segment() +
+  labs(x=chromosome) + coord_cartesian(xlim=lims, y=c(-1,2)) + 
+  theme_classic() + theme(text = element_text(size = 20),legend.position="none",axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank()) + facet_grid(sample~.) + geom_vline(xintercept=c(losttad$start, losttad$end), colour="grey", linetype="dotted")
+ggsave("../plots/chr17_zoom_tad.pdf", width=7)
+```
+
+Genes
+
+```{r}
+ggplot(genes1, aes(x=V2, y=log(baseMean), colour=padj<0.05)) + geom_point() + geom_segment(data=genes1, aes(x=V2,xend=V3, y=log(baseMean), yend=log(baseMean))) + coord_cartesian(xlim=lims) + theme_classic() + theme(text = element_text(size = 20),legend.position="none",axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank()) + labs(x=chromosome, y="") + scale_colour_manual(values=c("black","red"))
+ggsave("../plots/example_region_gene_expression.pdf", width=7,height=2, useDingbats=FALSE)
+```

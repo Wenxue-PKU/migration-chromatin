@@ -1,0 +1,273 @@
+---
+title: "TNF_DESeq2_analysis"
+author: "Elsie Jacobson"
+date: "2/28/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(DESeq2)
+library(vsn)
+library(gplots)
+library(scales)
+library(pheatmap)
+library(RColorBrewer)
+library(hexbin)
+```
+
+https://bioconductor.org/packages/3.7/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#countmat
+
+```{r}
+dat <- read.table('../data/welch_genes', header=TRUE, row.names = 1)
+```
+
+###HL60 +/- ATRA
+
+```{r}
+raw_counts <- dat[,c(6:13)]
+
+groups <- data.frame(factor(c("HL60","HL60","HL60","HL60","ATRA","ATRA","ATRA","ATRA")))
+rownames(groups) <- colnames(raw_counts)
+colnames(groups) <- "condition"
+
+dds <- DESeqDataSetFromMatrix(countData = raw_counts,
+                              colData = groups,
+                              design = ~ condition)
+dds
+
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+dds$condition <- relevel(dds$condition, ref = "HL60")
+
+dds <- DESeq(dds)
+res <- results(dds)
+res <- data.frame(res)
+```
+
+QC
+
+```{r}
+ggplot(res[is.na(res$padj)==FALSE,], aes(log(baseMean), log2FoldChange, colour=padj<0.05)) + geom_point()
+
+vsd <- vst(dds, blind=FALSE)
+meanSdPlot(assay(vsd))
+
+sampleDists <- dist(t(assay(vsd)))
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(vsd$condition, sep="-")
+colnames(sampleDistMatrix) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         col=colors)
+
+plotPCA(vsd, intgroup=c("condition"))
+```
+
+```{r}
+ext_name <- readRDS('../data/biomart_gene_ontology.rds')
+ext_name <- ext_name %>%
+  dplyr::select(ensembl_gene_id, external_gene_name) %>%
+  distinct()
+  
+
+res$gene <- rownames(res)
+atra <- res %>%
+  na.omit() %>%
+  mutate(ens_gene=gsub("\\..*$","",gene)) %>%
+  left_join(ext_name, by=c("ens_gene"="ensembl_gene_id"))
+
+atra_sig <- atra %>%
+  filter(padj<0.05)
+
+write.csv(atra, '../results/atra_all.csv')
+write.csv(atra_sig, '../results/atra_sig.csv')
+```
+
+###HL60 +/- TPA
+
+```{r}
+raw_counts <- dat[,c(6:9,14:17)]
+
+groups <- data.frame(factor(c("HL60","HL60","HL60","HL60","TPA","TPA","TPA","TPA")))
+rownames(groups) <- colnames(raw_counts)
+colnames(groups) <- "condition"
+
+dds <- DESeqDataSetFromMatrix(countData = raw_counts,
+                              colData = groups,
+                              design = ~ condition)
+dds
+
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+dds$condition <- relevel(dds$condition, ref = "HL60")
+
+dds <- DESeq(dds)
+res <- results(dds)
+res <- data.frame(res)
+```
+
+QC
+
+```{r}
+ggplot(res[is.na(res$padj)==FALSE,], aes(log(baseMean), log2FoldChange, colour=padj<0.05)) + geom_point()
+
+vsd <- vst(dds, blind=FALSE)
+meanSdPlot(assay(vsd))
+
+sampleDists <- dist(t(assay(vsd)))
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(vsd$condition, sep="-")
+colnames(sampleDistMatrix) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         col=colors)
+
+plotPCA(vsd, intgroup=c("condition"))
+```
+
+```{r}
+ext_name <- readRDS('../data/biomart_gene_ontology.rds')
+ext_name <- ext_name %>%
+  dplyr::select(ensembl_gene_id, external_gene_name) %>%
+  distinct()
+  
+
+res$gene <- rownames(res)
+tpa <- res %>%
+  na.omit() %>%
+  mutate(ens_gene=gsub("\\..*$","",gene)) %>%
+  left_join(ext_name, by=c("ens_gene"="ensembl_gene_id"))
+
+tpa_sig <- tpa %>%
+  filter(padj<0.05)
+
+write.csv(tpa, '../results/tpa_all.csv')
+write.csv(tpa_sig, '../results/tpa_sig.csv')
+```
+
+###ATRA v TPA
+
+```{r}
+raw_counts <- dat[,c(10:17)]
+
+groups <- data.frame(factor(c("ATRA","ATRA","ATRA","ATRA","TPA","TPA","TPA","TPA")))
+rownames(groups) <- colnames(raw_counts)
+colnames(groups) <- "condition"
+
+dds <- DESeqDataSetFromMatrix(countData = raw_counts,
+                              colData = groups,
+                              design = ~ condition)
+dds
+
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+dds$condition <- relevel(dds$condition, ref = "ATRA")
+
+dds <- DESeq(dds)
+res <- results(dds)
+res <- data.frame(res)
+```
+
+QC
+
+```{r}
+ggplot(res[is.na(res$padj)==FALSE,], aes(log(baseMean), log2FoldChange, colour=padj<0.05)) + geom_point()
+
+vsd <- vst(dds, blind=FALSE)
+meanSdPlot(assay(vsd))
+
+sampleDists <- dist(t(assay(vsd)))
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(vsd$condition, sep="-")
+colnames(sampleDistMatrix) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         col=colors)
+
+plotPCA(vsd, intgroup=c("condition"))
+```
+
+```{r}
+ext_name <- readRDS('../data/biomart_gene_ontology.rds')
+ext_name <- ext_name %>%
+  dplyr::select(ensembl_gene_id, external_gene_name) %>%
+  distinct()
+  
+
+res$gene <- rownames(res)
+atravtpa <- res %>%
+  na.omit() %>%
+  mutate(ens_gene=gsub("\\..*$","",gene)) %>%
+  left_join(ext_name, by=c("ens_gene"="ensembl_gene_id"))
+
+atravtpa_sig <- atravtpa %>%
+  filter(padj<0.05)
+
+write.csv(atravtpa, '../results/atra_v_tpa_all.csv')
+write.csv(atravtpa_sig, '../results/atra_v_tpa_sig.csv')
+```
+
+###HL60 +/- ATRA OR TPA
+
+```{r}
+raw_counts <- dat[,c(6:17)]
+
+groups <- data.frame(factor(c("HL60","HL60","HL60","HL60","ATRA","ATRA","ATRA","ATRA","TPA","TPA","TPA","TPA")))
+rownames(groups) <- colnames(raw_counts)
+colnames(groups) <- "condition"
+
+dds <- DESeqDataSetFromMatrix(countData = raw_counts,
+                              colData = groups,
+                              design = ~ condition)
+dds
+
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+dds$condition <- relevel(dds$condition, ref = "HL60")
+
+dds <- DESeq(dds)
+res <- results(dds)
+res <- data.frame(res)
+```
+
+#Get variance stabilised count table
+
+```{r}
+vst <- varianceStabilizingTransformation(dds, blind = TRUE,
+  fitType = "parametric")
+
+tbl <- assay(vst)
+
+write.csv(tbl, '../results/HL60_ATRA_TPA_vst_counts.csv')
+```
+
+QC
+
+```{r}
+vsd <- vst(dds, blind=FALSE)
+
+sampleDists <- dist(t(assay(vsd)))
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(vsd$condition, sep="-")
+colnames(sampleDistMatrix) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         col=colors)
+
+plotPCA(vsd, intgroup=c("condition"))
+```
+

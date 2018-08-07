@@ -1,0 +1,69 @@
+---
+title: "welch_deseq_v_mig"
+author: "Elsie Jacobson"
+date: "7/27/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(extrafont)
+
+ggformat <- theme_bw(base_family = "Arial") + theme(text = element_text(size = 20))
+col4 <- c("#FCA50AFF","#3CBC75FF","#2D718EFF","#420A68FF")
+```
+
+```{r}
+atra <- read.csv("atra_all.csv")
+mig5v14 <- read.csv("../migration/mig5v14_all.csv")
+bayes <- read.csv("../../public/Welch_2017/welch_gene_expression_ens_gene.csv")
+```
+
+```{r}
+atra_mig <- atra %>%
+  left_join(mig5v14, by="ens_gene") %>%
+  mutate(Significant=case_when(padj.x<0.05 & padj.y<0.05~"Both",
+                       padj.x<0.05~"HL60 +/- ATRA",padj.y<0.05~"5µm vs 14µm",TRUE~"Neither")) %>%
+  mutate(Significant=factor(Significant, levels=c("Neither","HL60 +/- ATRA","5µm vs 14µm","Both"))) %>%
+  na.omit()
+
+atra_mig_both_sig <- atra_mig %>%
+  filter(padj.x<0.05, padj.y<0.05)
+
+atra_sig_mig <- atra_mig %>%
+  filter(padj.x<0.05)
+
+atra_mig_sig <- atra_mig %>%
+  filter(padj.y<0.05)
+```
+
+```{r}
+ggplot(atra_mig, aes(log2FoldChange.x,log2FoldChange.y, colour=Significant)) + geom_point(alpha=0.5) + facet_wrap(~Significant) + ggformat + labs(x="HL60 +/- ATRA Log2FC",y="5µm vs 14µm Log2FC") + scale_colour_manual(values=col4) + theme(strip.background = element_blank(), strip.text.x = element_blank())
+ggsave("welch_v_mig_deseq2_log2FC.pdf", width=8)
+```
+
+deseq2 v bayes
+
+```{r}
+deseq_bayes <- atra %>%
+  left_join(bayes, by=c("ens_gene"="ensembl_gene_id")) %>%
+  mutate(Significant=case_when(padj<0.05 & RAv0_PPDE>0.95~"Both",
+                       padj<0.05~"DESeq2",RAv0_PPDE>0.95~"Bayes",TRUE~"Neither")) %>%
+  mutate(Significant=factor(Significant, levels=c("Neither","DESeq2","Bayes","Both"))) %>%
+  na.omit()
+
+atra_mig_both_sig <- atra_mig %>%
+  filter(padj.x<0.05, padj.y<0.05)
+
+atra_sig_mig <- atra_mig %>%
+  filter(padj.x<0.05)
+
+atra_mig_sig <- atra_mig %>%
+  filter(padj.y<0.05)
+```
+
+```{r}
+ggplot(deseq_bayes, aes(log2FoldChange,RAv0_Log2FC, colour=Significant)) + geom_point(alpha=0.5) + facet_wrap(~Significant, scales = "free") + ggformat + labs(x="DESeq2",y="Bayes") + scale_colour_manual(values=col4) + theme(strip.background = element_blank(), strip.text.x = element_blank())
+ggsave("welch_v_mig_deseq2_log2FC.pdf")
+```

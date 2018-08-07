@@ -1,0 +1,284 @@
+---
+title: "Differential Expression Analysis"
+author: "Elsie Jacobson"
+date: "4/20/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(DESeq2)
+library(vsn)
+library(RColorBrewer)
+library(gplots)
+library(scales)
+library(pheatmap)
+
+```
+
+##Differential gene expression using DESeq2
+
+The featureCounts matrxi contains raw counts for all 3 conditions
+
+```{r}
+dat <- read.table('../data/migration_genes.txt', header=TRUE, row.names = 1)
+```
+
+external gene names were extracted from ensembl
+
+```{r}
+g2o <- readRDS("../data/biomart_gene_ontology.rds")
+ens_ext <- g2o %>%
+  dplyr::select(ensembl_gene_id, external_gene_name) %>%
+  distinct()
+```
+
+### Differential expression mig5 vs mig14
+
+Create DESeq2 object
+
+```{r}
+raw_counts <- dat[,6:11]
+
+groups <- data.frame(factor(c("m14","m14","m14","m5","m5","m5")))
+rownames(groups) <- colnames(raw_counts)
+colnames(groups) <- "condition"
+
+dds <- DESeqDataSetFromMatrix(countData = raw_counts,
+                              colData = groups,
+                              design = ~ condition)
+dds
+
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+dds$condition <- relevel(dds$condition, ref = "m14")
+
+dds <- DESeq(dds)
+res <- results(dds)
+res <- data.frame(res)
+```
+
+QC
+
+```{r}
+ggplot(res[is.na(res$padj)==FALSE,], aes(log(baseMean), log2FoldChange, colour=padj<0.05)) + geom_point()
+
+vsd <- vst(dds, blind=FALSE)
+
+meanSdPlot(assay(vsd))
+
+sampleDists <- dist(t(assay(vsd)))
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(vsd$condition, sep="-")
+colnames(sampleDistMatrix) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         col=colors)
+
+plotPCA(vsd, intgroup=c("condition"))
+```
+
+Extract table of differentially expressed genes
+
+```{r}
+res$gene <- rownames(res)
+mig5v14 <- res %>%
+  na.omit() %>%
+  mutate(ens_gene=gsub("\\..*$","",gene)) %>%
+  left_join(ens_ext, by=c("ens_gene"="ensembl_gene_id"))
+
+mig5v14_sig <- mig5v14 %>%
+  filter(padj<0.05)
+
+write.csv(mig5v14, '../results/mig5v14_all.csv')
+write.csv(mig5v14_sig, '../results/mig5v14_sig.csv')
+```
+
+### Differential expression mig5 vs control
+
+Create DESeq2 object
+
+```{r}
+raw_counts <- dat[,9:14]
+
+groups <- data.frame(factor(c("m5","m5","m5", "nm","nm","nm")))
+rownames(groups) <- colnames(raw_counts)
+colnames(groups) <- "condition"
+
+dds <- DESeqDataSetFromMatrix(countData = raw_counts,
+                              colData = groups,
+                              design = ~ condition)
+dds
+
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+dds$condition <- relevel(dds$condition, ref = "nm")
+
+dds <- DESeq(dds)
+res <- results(dds)
+res <- data.frame(res)
+```
+
+QC
+
+```{r}
+ggplot(res[is.na(res$padj)==FALSE,], aes(log(baseMean), log2FoldChange, colour=padj<0.05)) + geom_point()
+
+vsd <- vst(dds, blind=FALSE)
+
+meanSdPlot(assay(vsd))
+
+sampleDists <- dist(t(assay(vsd)))
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(vsd$condition, sep="-")
+colnames(sampleDistMatrix) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         col=colors)
+
+plotPCA(vsd, intgroup=c("condition"))
+```
+
+Extract table of differentially expressed genes
+
+```{r}
+res$gene <- rownames(res)
+mig5 <- res %>%
+  na.omit() %>%
+  mutate(ens_gene=gsub("\\..*$","",gene)) %>%
+  left_join(ens_ext, by=c("ens_gene"="ensembl_gene_id"))
+
+mig5_sig <- mig5 %>%
+  filter(padj<0.05)
+
+write.csv(mig5, '../results/mig5_all.csv')
+write.csv(mig5_sig, '../results/mig5_sig.csv')
+```
+
+### Differential expression mig14 vs control
+
+Create DESeq2 object
+
+```{r}
+raw_counts <- dat[,c(6:8,12:14)]
+
+groups <- data.frame(factor(c("m14","m14","m14", "nm","nm","nm")))
+rownames(groups) <- colnames(raw_counts)
+colnames(groups) <- "condition"
+
+dds <- DESeqDataSetFromMatrix(countData = raw_counts,
+                              colData = groups,
+                              design = ~ condition)
+dds
+
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+dds$condition <- relevel(dds$condition, ref = "nm")
+
+dds <- DESeq(dds)
+res <- results(dds)
+res
+res <- data.frame(res)
+```
+
+QC
+
+```{r}
+ggplot(res[is.na(res$padj)==FALSE,], aes(log(baseMean), log2FoldChange, colour=padj<0.05)) + geom_point()
+
+vsd <- vst(dds, blind=FALSE)
+
+meanSdPlot(assay(vsd))
+
+sampleDists <- dist(t(assay(vsd)))
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(vsd$condition, sep="-")
+colnames(sampleDistMatrix) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         col=colors)
+
+plotPCA(vsd, intgroup=c("condition"))
+```
+
+Extract table of differentially expressed genes
+
+```{r}
+res$gene <- rownames(res)
+mig14 <- res %>%
+  na.omit() %>%
+  mutate(ens_gene=gsub("\\..*$","",gene)) %>%
+  left_join(ens_ext, by=c("ens_gene"="ensembl_gene_id"))
+
+mig14_sig <- mig14 %>%
+  filter(padj<0.05)
+
+write.csv(mig14, '../results/mig14_all.csv')
+write.csv(mig14_sig, '../results/mig14_sig.csv')
+```
+
+##Comparison of all 3 conditions
+
+Create DESeq2 object
+
+```{r}
+raw_counts <- dat[,6:14]
+
+groups <- data.frame(factor(c("m14","m14","m14","m5","m5","m5", "nm","nm","nm")))
+rownames(groups) <- colnames(raw_counts)
+colnames(groups) <- "condition"
+
+dds <- DESeqDataSetFromMatrix(countData = raw_counts,
+                              colData = groups,
+                              design = ~ condition)
+dds
+
+vst <- varianceStabilizingTransformation(dds, blind = TRUE,
+  fitType = "parametric")
+
+tbl <- assay(vst)
+```
+
+PCA plot
+
+```{r}
+vsd <- vst(dds, blind=FALSE)
+
+plotPCA(vsd, intgroup=c("condition")) + theme_classic() + theme(text = element_text(size = 20))
+ggsave("../plots/PCA_5v14vcontrol.pdf")
+```
+
+Generate heatmap of genes differentialy expressed between mig5 and mig14 (FDR<0.05)
+
+```{r}
+count <- data.frame(counts(dds))
+count$gene <- rownames(count)
+
+count <- count %>%
+  filter(gene %in% mig5v14_sig$gene)
+
+rownames(count) <- count$gene
+count <- as.matrix(count[,1:9])
+col.order <- c("NOMIGA.sort.bam", "NOMIGB.sort.bam", "NOMIGC.sort.bam","MIG14Q.sort.bam", "MIG14R.sort.bam", "MIG14S.sort.bam","MIG5G.sort.bam",  "MIG5H.sort.bam",  "MIG5I.sort.bam")
+count <- count[,col.order]
+colnames(count) <- c("NoMig","NoMig","NoMig","14um","14um","14um","5um","5um","5um")
+#normalise counts so sum of each column is 1 - adjusts for library size
+count_heat <- apply(count, 2, function(x) x/sum(x))
+#rescale each row so values fall between 0 and 1 - make each row visible
+count_heat <- apply(count_heat, 1, function(x) rescale(x))
+count_heat <- t(count_heat)
+
+pdf("../plots/heatmap_5v14_DESeq2.pdf")
+heatmap.2(count_heat,Colv=FALSE,dendrogram="row", trace="none", col=viridis_pal())
+dev.off()
+```

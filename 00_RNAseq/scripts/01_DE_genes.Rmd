@@ -1,0 +1,146 @@
+---
+title: "DE genes intersects and comparisons"
+author: "Elsie Jacobson"
+date: "4/20/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(Vennerable)
+library(extrafont)
+library(ggrepel)
+
+ggformat <- theme_classic(base_family = "Arial") + theme(text = element_text(size = 20))
+```
+
+###Prepare datasets
+
+Read all DGE datasets
+
+```{r}
+mig5v14 <- read.csv('../results/mig5v14_all.csv', row.names=1)
+mig5v14_sig <- read.csv('../results/mig5v14_sig.csv', row.names=1)
+mig5 <- read.csv('../results/mig5_all.csv', row.names=1)
+mig5_sig <- read.csv('../results/mig5_sig.csv', row.names=1)
+mig14 <- read.csv('../results/mig14_all.csv', row.names=1)
+mig14_sig <- read.csv('../results/mig14_sig.csv', row.names=1)
+```
+
+Volcano plots
+
+```{r}
+ggplot(mig5v14, aes(log2FoldChange, -log(padj), colour=padj<0.05)) + geom_point(alpha=0.5) + theme_bw() + scale_colour_manual(values=c("#2F4F4F", "red"))
+ggsave("../plots/volcano_5v14.pdf", useDingbats=FALSE)
+
+ggplot(mig5, aes(log2FoldChange, -log(pvalue), colour=padj<0.05)) + geom_point(alpha=0.5) + theme_bw() + scale_colour_manual(values=c("#2F4F4F", "red"))
+ggsave("../plots/volcano_5vctrl.pdf", useDingbats=FALSE)
+
+ggplot(mig14, aes(log2FoldChange, -log(pvalue), colour=padj<0.05)) + geom_point(alpha=0.5) + theme_bw() + scale_colour_manual(values=c("#2F4F4F", "red"))
+ggsave("../plots/volcano_14vctrl.pdf", useDingbats=FALSE)
+```
+
+Compile dataset of DGE in 3 comparisons
+
+```{r}
+hgnc_ens <- readRDS('../data/hgnc_ens.rds')
+convert <- hgnc_ens %>%
+  dplyr::select(hgnc_symbol, ensembl_gene_id) %>%
+  distinct()
+
+n5v14 <- paste(colnames(mig5v14), "5v14",sep="_")
+n5 <- paste(colnames(mig5), "5",sep="_")
+n14 <- paste(colnames(mig14), "14",sep="_")
+
+colnames(mig5v14) <- n5v14
+colnames(mig5) <- n5
+colnames(mig14) <- n14
+
+allmig <- mig5v14 %>%
+  full_join(mig5, by=c("gene_5v14"="gene_5")) %>%
+  full_join(mig14, by=c("gene_5v14"="gene_14"))
+
+allmig_sig <- allmig %>%
+  left_join(convert, by=c("ens_gene_14"="ensembl_gene_id")) %>%
+  mutate(sig_5v14=ifelse(padj_5v14<0.05,TRUE,FALSE)) %>%
+  mutate(sig_5=ifelse(padj_5<0.05,TRUE,FALSE)) %>%
+  mutate(sig_14=ifelse(padj_14<0.05,TRUE,FALSE)) %>%
+  filter(sig_5v14==TRUE | sig_5==TRUE | sig_14==TRUE) %>%
+  mutate(set=case_when(sig_5==TRUE & sig_14==TRUE~'set1',
+                       sig_5==TRUE & sig_14==FALSE & sig_5v14==FALSE~'set2',
+                       sig_5v14==TRUE & sig_14==FALSE~'set3')) %>%
+  dplyr::select(hgnc_symbol, ext_gene=external_gene_name_14, ens_gene_id=ens_gene_14,log2FoldChange_5v14,padj_5v14,log2FoldChange_5vctrl=log2FoldChange_5,padj_5vctrl=padj_5,
+                log2FoldChange_14vctrl=log2FoldChange_14,padj_14vctrl=padj_14, set) %>%
+  na.omit()
+
+write.csv(allmig_sig, "../results/Significant_DE_genes_all_conditions.csv")
+```
+
+###Venn diagram of the intersects
+
+```{r}
+venrbl <- NULL
+venrbl$mig5v14 <- as.character(mig5v14_sig$ens_gene)
+venrbl$mig5 <- as.character(mig5_sig$ens_gene)
+venrbl$mig14 <- as.character(mig14_sig$ens_gene)
+str(venrbl)
+
+Vmig <- Venn(venrbl)
+Vmig
+pdf("../plots/migVenn.pdf")
+plot(Vmig,doWeights=FALSE, show = list(SetNames=c("5 vs 14","none vs 5", "none vs 14"), Faces = FALSE, DarkMatter = FALSE))
+dev.off()
+```
+
+###Compare changes between mig5 vs control and mig14 vs control in different subsets
+
+Significant in both mig5 vs control and mig14 vs control
+
+```{r}
+mod <- lm(log2FoldChange_14~log2FoldChange_5, data=subset(allmig_sig, sig_5==TRUE & sig_14==TRUE))
+summary(mod)
+ggplot(subset(allmig_sig, sig_5==TRUE & sig_14==TRUE), aes(log2FoldChange_5, log2FoldChange_14)) + geom_point(alpha=0.5) + geom_abline(slope=0.78536, intercept = -0.01094) + ggformat + labs(x=expression(paste("5",mu,"m vs control logFC")), y=expression(paste("14",mu,"m vs control logFC")))
+ggsave("../plots/logFC_5_14_significant.pdf")
+```
+
+Significant only in mig5 vs control
+
+```{r}
+mod <- lm(log2FoldChange_14~log2FoldChange_5, data=subset(allmig_sig, sig_5==TRUE & sig_5v14==FALSE & sig_14==FALSE))
+summary(mod)
+ggplot(subset(allmig_sig, sig_5==TRUE & sig_5v14==FALSE & sig_14==FALSE), aes(log2FoldChange_5, log2FoldChange_14)) + geom_point(alpha=0.5) + geom_abline(slope=0.473765, intercept = 0.007815) + ggformat + labs(x=expression(paste("5",mu,"m vs control logFC")), y=expression(paste("14",mu,"m vs control logFC")))
+ggsave("../plots/logFC_5_only_significant.pdf")
+```
+
+Significant in mig5 vs mig14 but not in mig14 vs control - remodelling only!
+
+```{r}
+mod <- lm(log2FoldChange_14~log2FoldChange_5, data=subset(allmig_sig, sig_14==FALSE & sig_5v14==TRUE))
+summary(mod)
+ggplot(subset(allmig_sig, sig_14==FALSE & sig_5v14==TRUE), aes(log2FoldChange_5, log2FoldChange_14)) + geom_point(alpha=0.5) + ggformat + labs(x=expression(paste("5",mu,"m vs control logFC")), y=expression(paste("14",mu,"m vs control")))
+ggsave("../plots/logFC_5v14sig_mig14nonsig.pdf")
+```
+
+###Convert mig5 vs mig14 results to bed format for further analysis
+
+```{r}
+mig5v14_bed <- mig5v14 %>%
+  left_join(g2o_full, by=c("ens_gene"="ensembl_gene_id")) %>%
+  mutate(chromosome_name=paste("chr",chromosome_name,sep="")) %>%
+  mutate(chromosome_name=gsub("chrMT","chrM",chromosome_name)) %>%
+  mutate(strand=ifelse(strand>0,'+','-')) %>%
+  dplyr::select(chromosome_name, start_position, end_position, ens_gene,strand) %>%
+  distinct()
+
+mig5v14_sig_bed <- mig5v14_sig %>%
+  left_join(g2o_full, by=c("ens_gene"="ensembl_gene_id")) %>%
+  mutate(chromosome_name=paste("chr",chromosome_name,sep="")) %>%
+  mutate(chromosome_name=gsub("chrMT","chrM",chromosome_name)) %>%
+  mutate(strand=ifelse(strand>0,'+','-')) %>%
+  dplyr::select(chromosome_name, start_position, end_position, ens_gene,strand) %>%
+  distinct()
+
+write.table(mig5v14_sig_bed, '../results/mig5v14_sig.bed', sep='\t', quote=FALSE, row.names = FALSE, col.names = FALSE)
+write.table(mig5v14_bed, '../results/mig5v14.bed', sep='\t', quote=FALSE, row.names = FALSE, col.names = FALSE)
+```

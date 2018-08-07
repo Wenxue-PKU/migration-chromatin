@@ -1,0 +1,121 @@
+---
+title: "binSignal analysis"
+author: "Elsie Jacobson"
+date: "10/25/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(extrafont)
+
+ggformat <- theme_classic(base_family = "Arial") + theme(text = element_text(size = 20))
+```
+
+```{r}
+chroms <- read.csv("../data/chromosomes.csv")
+
+mig5bin <- read.table('../data/5mig_ds.binSignal')
+m5bin <- mig5bin %>%
+  filter(is.na(V6)==FALSE & V6>0) %>%
+  mutate(samp="mig5") %>%
+  left_join(chroms, by=c("V2"="chrom")) %>%
+  mutate(V4=ifelse(V4>=size, size, V4)) %>%
+  mutate(coord=paste(V2,V3,V4, sep="-"))
+
+migCbin <- read.table('../data/ctrlmig_ds.binSignal')
+mCbin <- migCbin %>%
+  filter(is.na(V6)==FALSE & V6>0) %>%
+  mutate(samp="migctrl") %>%
+  left_join(chroms, by=c("V2"="chrom")) %>%
+  mutate(V4=ifelse(V4>=size, size, V4)) %>%
+  mutate(coord=paste(V2,V3,V4, sep="-"))
+
+mig14bin <- read.table('../data/14mig.binSignal')
+m14bin <- mig14bin %>%
+  filter(is.na(V6)==FALSE & V6>0) %>%
+  mutate(samp="mig14") %>%
+  left_join(chroms, by=c("V2"="chrom")) %>%
+  mutate(V4=ifelse(V4>=size, size, V4)) %>%
+  mutate(coord=paste(V2,V3,V4, sep="-"))
+
+ext <- c(0,-0.5,-1,1)
+Feature <- c("Domain","Gap","Local Min", "Local Max")
+ann <- data.frame(factor(ext), Feature)
+
+allbins <- m5bin %>%
+  bind_rows(m14bin) %>%
+  bind_rows(mCbin) %>%
+  mutate(local_extreme=factor(V5)) %>%
+  mutate(samp=factor(samp, levels=c("migctrl","mig14","mig5"))) %>%
+  inner_join(ann, by=c("local_extreme"="factor.ext.")) %>%
+  mutate(log_signal=log(V6))
+
+allbins$bin <- allbins %>%
+  group_by(coord) %>%
+  group_indices()
+
+matchbins <- m5bin %>%
+  inner_join(m14bin, by="coord") %>%
+  inner_join(mCbin, by="coord") %>%
+  mutate(log_mig5=log(V6.x), log_mig14=log(V6.y), log_nomig=log(V6))
+```
+
+mig5: range `r range(m5bin$V6,na.rm=TRUE)` mean `r mean(m5bin$V6,na.rm=TRUE)` median `r median(m5bin$V6,na.rm=TRUE)` sd `r sd(m5bin$V6,na.rm=TRUE)`
+
+
+mig14: range `r range(m14bin$V6,na.rm=TRUE)` mean `r mean(m14bin$V6,na.rm=TRUE)` median `r median(m14bin$V6,na.rm=TRUE)` sd `r sd(m14bin$V6,na.rm=TRUE)`
+
+
+migCtrl: range `r range(mCbin$V6,na.rm=TRUE)` mean `r mean(mCbin$V6,na.rm=TRUE)` median `r median(mCbin$V6,na.rm=TRUE)` sd `r sd(mCbin$V6,na.rm=TRUE)`
+
+```{r}
+min_max <- allbins %>%
+  mutate(location=ifelse(local_extreme %in% c(0,1),"Within TAD", ifelse(
+    local_extreme==-1, "Between TAD","gap"))) %>%
+  filter(V7<0.05)
+
+ggplot(min_max, aes(log(V6), colour=samp)) + geom_density(adjust=2) + facet_grid(Feature~.) + ggformat + labs(x="Log contacts")
+```
+
+```{r}
+tad_ttest <- NULL
+tad_ttest$test <- NULL
+tad_ttest$Pore_Size <- NULL
+tad_ttest$Contacts <- NULL
+tad_ttest$pval <- NULL
+tad_ttest$mean_mig <- NULL
+tad_ttest$mean_ctrl <- NULL
+tad_ttest$lo <- NULL
+tad_ttest$hi <- NULL
+
+n=1
+
+for(j in c("Within TAD", "Between TAD")) {
+      print(j)
+      t <- t.test(min_max$log_signal[min_max$samp=="mig5" & min_max$location==j],
+       min_max$log_signal[min_max$samp=="mig14" & min_max$location==j])
+      
+      tad_ttest$test[[n]] <- j
+      tad_ttest$Pore_Size[[n]] <- i
+      tad_ttest$Contacts[[n]] <- j
+      tad_ttest$pval[[n]] <- t$p.value
+      tad_ttest$mean_mig[[n]] <- t$estimate[[1]]
+      tad_ttest$mean_ctrl[[n]] <- t$estimate[[2]]
+      tad_ttest$lo[[n]] <- t$conf.int[[1]]
+      tad_ttest$hi[[n]] <- t$conf.int[[2]]
+      
+      n=n+1
+  }
+
+
+tadtest <- as.data.frame(tad_ttest)
+
+tad <- tadtest %>%
+  mutate(change=mean_mig-mean_ctrl) %>%
+  na.omit()
+
+ggplot(tad) + geom_pointrange(aes(test, change, ymin=lo, ymax=hi)) + coord_cartesian(ylim=c(0,-1.4)) + geom_hline(yintercept=0, colour="grey", linetype="dashed") + ggformat + labs(x="Location", y="Contact frequency")
+ggsave("../plots/TAD_Contact_Freqs.pdf")
+```

@@ -1,0 +1,189 @@
+---
+title: "03_domains"
+author: "Elsie Jacobson"
+date: "4/25/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(extrafont)
+
+colsame <- viridis_pal(option="B", begin=0.2, end=0.8)(2)
+mypal <- c("#414487FF","#7AD151FF","#CC4977FF")
+
+ggformat <- theme_classic(base_family = "Arial") + theme(text = element_text(size = 20))
+```
+
+```{r}
+domain_intersect <- read.table('../results/domain_intersect_numbers.txt', sep="\t")
+lost_domains <- read.table('../results/5mig_domains_not_in_14mig.bed', sep="\t")
+domains5 <- read.table('../data/5mig_ds_domains.txt', sep='\t')
+domains14 <- read.table('../data/14mig_domains.txt', sep='\t')
+domainsC <- read.table('../data/ctrlmig_ds_domains.txt', sep='\t')
+pc_cd <- readRDS("../results/PC_corrdiff_mig_granges.rds")
+
+chroms <- read.csv("../data/chromosomes.csv")
+```
+
+##Conserved Domains
+
+```{r}
+total <- domain_intersect %>%
+  filter(V3=="total") %>%
+  select(total_count=V1,sample=V2)
+
+domain_match <- domain_intersect %>%
+  filter(V3!="total") %>%
+  dplyr::rename(match_count=V1, sample=V2, bg=V3) %>%
+  left_join(total, by="sample") %>%
+  mutate(Comparison=paste(sample,bg,sep="vs")) %>%
+  mutate(Percent_match=(match_count/total_count)*100)
+
+ggplot(domain_match, aes(Comparison,Percent_match)) + geom_bar(stat='identity', width=0.5) + ggformat + coord_cartesian(ylim=c(0,100)) + labs(x="Pore size", y="Conserved domains (%)") + scale_x_discrete(labels=c("14µm v control","5µm v 14µm", "5µm v control"))
+ggsave("../plots/matching_domain.pdf")
+```
+
+##Lost Domains - counting one domain = one unit
+
+```{r}
+lost_doms <- lost_domains %>%
+  mutate(pos=paste(V1,V2,V3,sep="-"), stable=FALSE) %>%
+  select(pos, stable)
+
+lost_all <- domains5 %>%
+  mutate(pos=paste(V1,V3,V5,sep="-")) %>%
+  filter(V6=="domain", V7>0) %>%
+  mutate(log_size=log(V7)) %>%
+  left_join(lost_doms, by="pos") %>%
+  mutate(stable=case_when(stable==FALSE~"Not Conserved",TRUE~"Conserved")) %>%
+  distinct() %>%
+  na.omit()
+```
+
+Genome wide distribution of lost domains
+
+```{r}
+library(plyr)
+domain_lost <- lost_domains %>%
+  mutate(pos=(V2+V3/2)) %>%
+  mutate(pos=round_any(pos,1000000)) %>%
+  group_by(V1,pos) %>%
+  dplyr::summarise(count=dplyr::n())
+detach(package:plyr)
+```
+
+```{r}
+ggplot(domain_lost, aes(pos, count)) + geom_bar(stat="identity") + facet_wrap(~V1, scales = "free_x") + ggformat + theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank()) +
+  scale_y_continuous(breaks=c(1,2)) + labs(y="TADs")
+ggsave("../plots/diff_tads_genome_distribution.pdf")
+```
+
+Figure*********
+
+```{r}
+ggplot(lost_all, aes(stable, log(V7))) + geom_jitter(alpha=0.5) + geom_boxplot() + ggformat + labs(x="TAD",y="Log(Size)")
+ggsave("../plots/lost_TAD_size.pdf", useDingbats=FALSE)
+```
+
+```{r}
+lost_mod <- lm(log_size~stable, data=lost_all)
+summary(lost_mod)
+```
+
+
+
+```{r}
+lost_grange <- lost_all %>%
+  select(seqnames=V1,start=V3,end=V5,size=V7,pos,stable) %>%
+  as_granges()
+
+lost_pc <- join_overlap_left(lost_grange,pc_cd)
+
+lost_pc <- as.data.frame(lost_pc@elementMetadata)
+lost_pc <- lost_pc %>%
+  na.omit() %>%
+  select(size, tad_pos=pos.x, compartment_14, stable) %>%
+  distinct()
+
+lost_pc_freq <- lost_pc %>%
+  group_by(stable, compartment_14) %>%
+  summarise(count=dplyr::n()) %>%
+  mutate(freq=count/sum(count))
+```
+
+```{r}
+for(i in 1:1000){
+  n <- lost_pc %>%
+  sample_n(size=length(lost_pc$stable), replace=TRUE) %>%
+  group_by(stable, compartment_14) %>%
+  summarise(count=dplyr::n()) %>%
+  mutate(freq=count/sum(count))
+  
+  if(i==1){
+    boot_lost_pc_freq <- n
+  } else {
+    boot_lost_pc_freq <- bind_rows(boot_lost_pc_freq,n)
+  }
+}
+```
+
+Figure*********************
+
+```{r}
+ggplot(boot_lost_pc_freq, aes(compartment_14, freq,colour=stable)) + geom_boxplot(position="dodge") + scale_colour_manual(values=coldir) + ggformat + labs(x="Compartment",y="Proportion", colour="TAD") + theme(legend.position=c(0.8,0.8))
+ggsave("../plots/Conserved_TADs_PC.pdf", useDingbats=FALSE)
+```
+
+```{r}
+tad_aov <- aov(freq~stable*compartment_14, data=boot_lost_pc_freq)
+tuk <- TukeyHSD(tad_aov)
+tuk$`stable:compartment_14`
+```
+
+##Domain Size
+
+```{r}
+cn <- c("chr","id1","start","id2","end","type","size")
+colnames(domains14) <- cn
+colnames(domains5) <- cn
+colnames(domainsC) <- cn
+```
+
+Over 90% of the TADs in each condition are below 2Mb.
+
+```{r}
+d5 <- domains5 %>%
+  mutate(sample="mig5") %>%
+  mutate(over2Mb=ifelse(size>2000000, TRUE, FALSE)) %>%
+  mutate(chromosome=gsub("chr","",chr)) %>%
+  mutate(order=as.numeric(ifelse(chromosome=="X",23,chromosome))) %>%
+  arrange(order)
+
+d14 <- domains14 %>%
+  mutate(sample="mig14") %>%
+  mutate(over2Mb=ifelse(size>2000000, TRUE, FALSE)) %>%
+  mutate(chromosome=gsub("chr","",chr)) %>%
+  mutate(order=as.numeric(ifelse(chromosome=="X",23,chromosome))) %>%
+  arrange(order)
+
+dC <- domainsC %>%
+  mutate(sample="ctrl") %>%
+  mutate(over2Mb=ifelse(size>2000000, TRUE, FALSE)) %>%
+  mutate(chromosome=gsub("chr","",chr)) %>%
+  mutate(order=as.numeric(ifelse(chromosome=="X",23,chromosome))) %>%
+  arrange(order)
+
+all_tads <- d5 %>%
+  bind_rows(d14) %>%
+  bind_rows(dC) %>%
+  left_join(chroms, by=c("chr"="chrom")) %>%
+  mutate(end=ifelse(end>size.y, size.y,end)) %>%
+  mutate(sample=factor(sample, levels=c("ctrl","mig14","mig5")))
+```
+
+```{r}
+ggplot(all_tads, aes(size.x, colour=sample)) + geom_density(adjust=3) + coord_cartesian(xlim = c(0, 2000000)) + theme_classic(base_family = "Arial") + theme(legend.justification=c(1,1), text = element_text(size = 20), legend.position=c(0.8,0.8)) + labs(x="TAD size (bp)", y="Density") + scale_color_manual(values=mypal,labels = c("Unmigrated","14µm pores","5µm pores"), "Control" )
+ggsave("../plots/all_tads.pdf")
+```
