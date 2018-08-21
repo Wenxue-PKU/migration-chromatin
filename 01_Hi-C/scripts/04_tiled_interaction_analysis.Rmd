@@ -71,10 +71,8 @@ prop.test(long$count,long$total)
 ##Interaction analysis
 
 ```{r}
-#sigCPC <- read.csv("../results/ctrl_sig_PC1.txt", sep="\t", header=FALSE)
 sig5PC <- read.csv("../results/mig5_sig_PC1.txt", sep="\t", header=FALSE)
 sig14PC <- read.csv("../results/mig14_sig_PC1.txt", sep="\t", header=FALSE)
-#down5PC <- read.csv("../results/mig5_down_diff_PC1.txt", sep="\t",header=FALSE)
 down5v14PC <- read.csv("../results/mig5v14_down_diff_PC1.txt", sep="\t",header=FALSE)
 up5v14PC <- read.csv("../results/mig5v14_up_diff_PC1.txt", sep="\t",header=FALSE)
 ```
@@ -230,10 +228,10 @@ prop_diff_comp <- diff_ints %>%
 
 ```{r}
 ggplot(total_ints, aes(dist, count, fill=compartment)) + geom_bar(position="dodge", stat="identity") + theme_classic() + scale_fill_manual(values=colsame) + ggformat + labs(x="Distance",y="Total contacts")
-ggsave("../plots/total_contacts_control_distance_up5v14.pdf", useDingbats=FALSE)
+ggsave("../plots/total_contacts_mig14_distance_up5v14.pdf", useDingbats=FALSE)
 
 ggplot(diff_ints, aes(dist, count, fill=compartment)) + geom_bar(position="dodge", stat="identity") + theme_classic() + scale_fill_manual(values=colsame) + ggformat + labs(x="Distance",y="Increased contacts")
-ggsave("../plots/increased_contacts_mig5vcontrol_distance_up5v14.pdf", useDingbats=FALSE)
+ggsave("../plots/increased_contacts_mig5v14_distance_up5v14.pdf", useDingbats=FALSE)
 ```
 
 

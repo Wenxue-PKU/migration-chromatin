@@ -31,13 +31,13 @@ mig14_sig <- read.csv('../results/mig14_sig.csv', row.names=1)
 Volcano plots
 
 ```{r}
-ggplot(mig5v14, aes(log2FoldChange, -log(padj), colour=padj<0.05)) + geom_point(alpha=0.5) + theme_bw() + scale_colour_manual(values=c("#2F4F4F", "red"))
+ggplot(mig5v14, aes(log2FoldChange, -log(padj), colour=padj<0.05)) + geom_point(alpha=0.5) + theme_bw() + scale_colour_manual(values=c("#2F4F4F", "red")) + ggformat + labs(x="Log2FoldChange 5µm vs 14µm")
 ggsave("../plots/volcano_5v14.pdf", useDingbats=FALSE)
 
-ggplot(mig5, aes(log2FoldChange, -log(pvalue), colour=padj<0.05)) + geom_point(alpha=0.5) + theme_bw() + scale_colour_manual(values=c("#2F4F4F", "red"))
+ggplot(mig5, aes(log2FoldChange, -log(padj), colour=padj<0.05)) + geom_point(alpha=0.5) + theme_bw() + scale_colour_manual(values=c("#2F4F4F", "red")) + ggformat + labs(x="Log2FoldChange 5µm vs Control")
 ggsave("../plots/volcano_5vctrl.pdf", useDingbats=FALSE)
 
-ggplot(mig14, aes(log2FoldChange, -log(pvalue), colour=padj<0.05)) + geom_point(alpha=0.5) + theme_bw() + scale_colour_manual(values=c("#2F4F4F", "red"))
+ggplot(mig14, aes(log2FoldChange, -log(padj), colour=padj<0.05)) + geom_point(alpha=0.5) + theme_bw() + scale_colour_manual(values=c("#2F4F4F", "red")) + ggformat + labs(x="Log2FoldChange 14µm vs Control")
 ggsave("../plots/volcano_14vctrl.pdf", useDingbats=FALSE)
 ```
 

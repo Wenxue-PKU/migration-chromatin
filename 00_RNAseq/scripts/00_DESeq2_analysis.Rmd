@@ -15,6 +15,7 @@ library(gplots)
 library(scales)
 library(pheatmap)
 
+ggformat <- theme_classic(base_family = "Arial") + theme(text = element_text(size = 20))
 ```
 
 ##Differential gene expression using DESeq2
@@ -234,7 +235,7 @@ Create DESeq2 object
 ```{r}
 raw_counts <- dat[,6:14]
 
-groups <- data.frame(factor(c("m14","m14","m14","m5","m5","m5", "nm","nm","nm")))
+groups <- data.frame(factor(c("14µm","14µm","14µm","5µm","5µm","5µm", "Control","Control","Control")))
 rownames(groups) <- colnames(raw_counts)
 colnames(groups) <- "condition"
 
@@ -254,8 +255,8 @@ PCA plot
 ```{r}
 vsd <- vst(dds, blind=FALSE)
 
-plotPCA(vsd, intgroup=c("condition")) + theme_classic() + theme(text = element_text(size = 20))
-ggsave("../plots/PCA_5v14vcontrol.pdf")
+plotPCA(vsd, intgroup=c("condition")) + theme_classic() + theme(text = element_text(size = 20)) + ggformat + labs(colour="") + scale_colour_manual(values=c("#414487FF","#7AD151FF","#CC4977FF"))
+ggsave("../plots/PCA_5v14vcontrol.pdf", useDingbats=FALSE)
 ```
 
 Generate heatmap of genes differentialy expressed between mig5 and mig14 (FDR<0.05)

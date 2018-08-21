@@ -29,14 +29,33 @@ rotate <- theme(axis.text.x = element_text(angle = 60, hjust = 1))
 ```{r, echo=FALSE}
 pc5 <- read.table('../data/100kb_5mig_ds.PC1.bed', sep='\t')
 pc14 <- read.table('../data/100kb_14mig.PC1.bed', sep='\t')
+pcC <- read.table('../data/100kb_ctrlmig_ds.PC1.bed', sep='\t')
 
 cd5v14 <- read.csv("../data/100kb_5mig_14mig.corrDiff.txt", sep="\t", header=FALSE)
+cd5 <- read.csv("../data/100kb_5mig_ctrlmig.corrDiff.txt", sep="\t", header=FALSE)
+cd14 <- read.csv("../data/100kb_14mig_ctrlmig.corrDiff.txt", sep="\t", header=FALSE)
 
 rna5v14 <- read.csv('../../00_RNAseq/results/mig5v14_all.csv')
 genes <- read.table('../../00_RNAseq/results/mig5v14.bed', sep='\t')
 
 ints_homer_5v14 <- read.csv("../results/mig5v14_down_diff.bed", sep="\t",header=FALSE)
 ints_homer_14sig <- read.csv("../results/mig14_sig.bed", sep="\t",header=FALSE)
+```
+
+Corrdiffs additional file 4
+
+```{r}
+pc_corrdiffs <- cd5v14 %>%
+  left_join(cd5, by=c("V1","V2","V3","V4")) %>%
+  left_join(cd14, by=c("V1","V2","V3","V4")) %>%
+  dplyr::select(Pos=V1, Chrom=V2, start=V3, end=V4, corrdiff_5v14=V6.x, corrdiff_5vctrl=V6.y,corrdiff_14vctrl=V6) %>%
+  left_join(pc5, by=c("Chrom"="V1","start"="V2","end"="V3")) %>%
+  left_join(pc14, by=c("Chrom"="V1","start"="V2","end"="V3")) %>%
+  left_join(pcC, by=c("Chrom"="V1","start"="V2","end"="V3")) %>%
+  dplyr::rename(PC_5=V4.x, PC_14=V4.y,PC_ctrl=V4) %>%
+  na.omit()
+
+write.csv(pc_corrdiffs, "../results/PC_Corrdiffs.csv")
 ```
 
 ##Used
