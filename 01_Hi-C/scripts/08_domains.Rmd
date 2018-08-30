@@ -32,7 +32,7 @@ chroms <- read.csv("../data/chromosomes.csv")
 ```{r}
 total <- domain_intersect %>%
   filter(V3=="total") %>%
-  select(total_count=V1,sample=V2)
+  dplyr::select(total_count=V1,sample=V2)
 
 domain_match <- domain_intersect %>%
   filter(V3!="total") %>%
@@ -50,7 +50,7 @@ ggsave("../plots/matching_domain.pdf")
 ```{r}
 lost_doms <- lost_domains %>%
   mutate(pos=paste(V1,V2,V3,sep="-"), stable=FALSE) %>%
-  select(pos, stable)
+  dplyr::select(pos, stable)
 
 lost_all <- domains5 %>%
   mutate(pos=paste(V1,V3,V5,sep="-")) %>%
@@ -180,11 +180,13 @@ all_tads <- d5 %>%
   bind_rows(dC) %>%
   left_join(chroms, by=c("chr"="chrom")) %>%
   mutate(end=ifelse(end>size.y, size.y,end)) %>%
-  mutate(sample=factor(sample, levels=c("ctrl","mig14","mig5")))
+  mutate(sample=factor(sample, levels=c("ctrl","mig14","mig5"))) %>%
+  filter(size.x>0) %>%
+  mutate(log_size=log(size.x))
 ```
 
 ```{r}
-all_mod <- lm(size.x~sample, data=all_tads)
+all_mod <- lm(log_size~sample, data=all_tads)
 summary(all_mod)
 
 small <- all_tads %>%
@@ -194,6 +196,6 @@ summary(small_mod)
 ```
 
 ```{r}
-ggplot(all_tads, aes(size.x, colour=sample)) + geom_density(adjust=3) + coord_cartesian(xlim = c(0, 2000000)) + theme_classic(base_family = "Arial") + theme(legend.justification=c(1,1), text = element_text(size = 20), legend.position=c(0.8,0.8)) + labs(x="TAD size (bp)", y="Density") + scale_color_manual(values=mypal,labels = c("Unmigrated","14µm pores","5µm pores"), "Control" )
+ggplot(all_tads, aes(log_size, colour=sample)) + geom_density(adjust=3) + theme_classic(base_family = "Arial") + theme(legend.justification=c(1,1), text = element_text(size = 20), legend.position=c(0.8,0.8)) + labs(x="log(TAD size) (bp)", y="Density") + scale_color_manual(values=mypal,labels = c("Unmigrated","14µm pores","5µm pores"), "Control" )
 ggsave("../plots/all_tads.pdf")
 ```
